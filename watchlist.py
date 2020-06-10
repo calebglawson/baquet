@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.sql import func
 from datetime import datetime
 
-from models.watchlist import BASE, WatchlistSQL, WatchwordsSQL
+from baquet.models.watchlist import BASE, WatchlistSQL, WatchwordsSQL
 
 
 class Watchlist:

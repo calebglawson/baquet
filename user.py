@@ -7,12 +7,12 @@ from datetime import datetime
 from math import ceil
 import json
 
-from models.user import BASE, UsersSQL, TimelineSQL, FavoritesSQL, FriendsSQL, FollowersSQL
-from watchlist import Watchlist
+from baquet.models.user import BASE, UsersSQL, TimelineSQL, FavoritesSQL, FriendsSQL, FollowersSQL
+from baquet.watchlist import Watchlist
 
 
 def _make_config():
-    config = open(Path('./config.json'))
+    config = open(Path('./baquet/config.json'))
     return json.load(config)
 
 
