@@ -1,18 +1,23 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
-from sqlalchemy.orm import relationship
+'''
+Model for a user's info, stores information of interest.
+'''
+
+from sqlalchemy import Column, Integer, String, Boolean, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 
 BASE = declarative_base()
 
 
 class FavoritesSQL(BASE):
-    '''These are tweets. I hope you know that.'''
+    '''
+    Tweets this user has liked.
+    '''
     __tablename__ = 'favorites'
     created_at = Column(DateTime)
     entities = Column(String)
     extended_entities = Column(String)
     favorite_count = Column(Integer)
-    id = Column(Integer, primary_key=True)
+    tweet_id = Column(Integer, primary_key=True)
     is_quote_status = Column(Boolean)
     lang = Column(String)
     possibly_sensitive = Column(Boolean)
@@ -28,13 +33,15 @@ class FavoritesSQL(BASE):
 
 
 class TimelineSQL(BASE):
-    '''These are tweets. I hope you know that.'''
+    '''
+    Tweets authored by this user and retweets.
+    '''
     __tablename__ = 'timeline'
     created_at = Column(DateTime)
     entities = Column(String)
     extended_entities = Column(String)
     favorite_count = Column(Integer)
-    id = Column(Integer, primary_key=True)
+    tweet_id = Column(Integer, primary_key=True)
     is_quote_status = Column(Boolean)
     lang = Column(String)
     possibly_sensitive = Column(Boolean)
@@ -53,7 +60,9 @@ class TimelineSQL(BASE):
 
 
 class UsersSQL(BASE):
-    '''These are users. I hope you know that.'''
+    '''
+    Stores the top level info for a user.
+    '''
     __tablename__ = 'users'
     contributors_enabled = Column(Boolean)
     created_at = Column(DateTime)
@@ -66,7 +75,7 @@ class UsersSQL(BASE):
     friends_count = Column(Integer)
     geo_enabled = Column(Boolean)
     has_extended_profile = Column(Boolean)
-    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, primary_key=True)
     is_translation_enabled = Column(Boolean)
     is_translator = Column(Boolean)
     lang = Column(String)
@@ -86,12 +95,18 @@ class UsersSQL(BASE):
 
 
 class FollowersSQL(BASE):
+    '''
+    Account user ids that follow this user.
+    '''
     __tablename__ = 'followers'
-    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, primary_key=True)
     last_updated = Column(DateTime)
 
 
 class FriendsSQL(BASE):
+    '''
+    Account user ids that the subject user follows.
+    '''
     __tablename__ = 'friends'
-    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, primary_key=True)
     last_updated = Column(DateTime)
