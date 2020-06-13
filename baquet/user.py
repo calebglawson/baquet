@@ -2,6 +2,7 @@
 All of the operations needed to support fetching and filtering Twitter user information.
 '''
 
+import re
 import json
 from datetime import datetime
 from math import ceil
@@ -43,8 +44,8 @@ def _transform_watchlist(watchlist, kind):
 def _filter_for_watchwords(results, watchwords):
     matches = []
     for result in results:
-        for watchword in watchwords:
-            if watchword.lower() in result.text.lower():
+        for regex in watchwords:
+            if re.search(regex, result.text):
                 matches.append(result)
                 break
     return matches
