@@ -144,7 +144,7 @@ def screen_names_to_user_ids(screen_names):
     '''
     Input screen names and output a list of user ids.
     Beyond 1500 becomes slow due to Twitter rate limiting,
-    be prepared to wait 15 minutes.
+    be prepared to wait 15 minutes between each 1500.
     '''
     iterations = ceil(len(screen_names) / 100)
     results = []
@@ -152,7 +152,6 @@ def screen_names_to_user_ids(screen_names):
         start = i * 100
         end = len(screen_names) if (i + 1) * \
             100 > len(screen_names) else (i + 1) * 100
-        print(start, end)
         users = _API.lookup_users(screen_names=screen_names[start:end])
         results = results + [user.id for user in users]
 
@@ -289,6 +288,9 @@ class User:
         return self._conn.query(FriendsSQL).all()
 
     def _fetch_friends(self):
+        # Delete to prevent stale entries.
+        self._conn.query(FriendsSQL).delete()
+
         for friend_id in tweepy.Cursor(_API.friends_ids, id=self._user_id).items():
             friend_sql = FriendsSQL(
                 user_id=friend_id, last_updated=datetime.utcnow())
@@ -309,8 +311,11 @@ class User:
         return self._conn.query(FollowersSQL).all()
 
     def _fetch_followers(self):
+        # Delete to prevent stale entries.
+        self._conn.query(FollowersSQL).delete()
+
         for follower_id in tweepy.Cursor(_API.followers_ids, id=self._user_id).items():
             follower_sql = FollowersSQL(
                 user_id=follower_id, last_updated=datetime.utcnow())
-            self._conn.merge(follower_sql)
+            self._conn.add(follower_sql)
         self._conn.commit()
