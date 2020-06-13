@@ -163,6 +163,10 @@ class User:
     '''
 
     def __init__(self, user_id, limit=100, cache_expiry=86400):
+
+        if not isinstance(user_id, int):
+            raise TypeError('User id must be an integer.')
+
         self._user_id = user_id
         self._limit = limit
         self._cache_expiry = cache_expiry
