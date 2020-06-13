@@ -9,7 +9,7 @@ from baquet.user import User
 from baquet.watchlist import Watchlist
 ```
 
-A `User` is a single Twitter user. You can use many get methods to get information about a user, `baquet` will talk to Twitter for you and preserve the data in its own cache.
+A `User` is a single Twitter user. You can use many get methods to get information about a user, `baquet` will talk to Twitter for you and preserve the data in its own cache. Users are instantiated with their unique Twitter id. If you don't have them handy, `baquet` provides the `screen_names_to_user_ids()` helper method for you.
 
 ```
 u = User(8392018391)
