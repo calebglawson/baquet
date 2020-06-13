@@ -22,4 +22,4 @@ class WatchwordsSQL(BASE):
     Twitter words, phrases, fragments of interest.
     '''
     __tablename__ = 'watchwords'
-    word = Column(String, primary_key=True)
+    regex = Column(String, primary_key=True)

@@ -62,25 +62,25 @@ class Watchlist:
         '''
         return [user.user_id for user in self._conn.query(WatchlistSQL).all()]
 
-    def add_watchword(self, word):
+    def add_watchword(self, regex):
         '''
         Add a search term to the watchwords.
         '''
-        word = WatchwordsSQL(word=word)
-        self._conn.merge(word)
+        regex = WatchwordsSQL(regex=regex)
+        self._conn.merge(regex)
         self._conn.commit()
 
-    def remove_watchword(self, word):
+    def remove_watchword(self, regex):
         '''
         Remove a search term from the watchwords.
         '''
-        word = self._conn.query(WatchwordsSQL).filter(
-            WatchwordsSQL.word == word).first()
-        self._conn.delete(word)
+        regex = self._conn.query(WatchwordsSQL).filter(
+            WatchwordsSQL.regex == regex).first()
+        self._conn.delete(regex)
         self._conn.commit()
 
     def get_watchwords(self):
         '''
         Get the watchwords as a list.
         '''
-        return [word.word for word in self._conn.query(WatchwordsSQL).all()]
+        return [regex.regex for regex in self._conn.query(WatchwordsSQL).all()]
