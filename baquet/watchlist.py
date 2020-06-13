@@ -43,8 +43,8 @@ class Watchlist:
                 users[i] = user.get_user_id()
 
             users[i] = WatchlistSQL(user_id=users[i])
+            self._conn.merge(users[i])
 
-        self._conn.bulk_save_objects(users)
         self._conn.commit()
 
     def remove_watchlist(self, user):

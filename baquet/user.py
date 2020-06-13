@@ -147,7 +147,7 @@ def screen_names_to_user_ids(screen_names):
         end = len(screen_names) if (i + 1) * \
             100 > len(screen_names) else (i + 1) * 100
         users = _API.lookup_users(screen_names=screen_names[start:end])
-        results = results + [user.id for user in users]
+        results.extend([user.id for user in users])
 
     return results
 
@@ -234,13 +234,26 @@ class User:
 
         return results
 
+    def get_retweet_watchlist_percent(self, watchlist):
+        '''
+        Get percentage of retweets that are from folks on the watchlist.
+        '''
+        if self._cache_expired(TimelineSQL):
+            self._fetch_timeline()
+
+        watchlist = _transform_watchlist(watchlist, "watchlist")
+        retweets_on_watchlist = self._conn.query(TimelineSQL).filter(
+            TimelineSQL.retweet_user_id.in_(watchlist)).count()
+        retweets = self._conn.query(
+            TimelineSQL).filter(TimelineSQL.retweet_user_id is not None).count()
+
+        return retweets_on_watchlist / retweets if retweets != 0 else 0
+
     def _fetch_timeline(self):
-        tweets = []
         for tweet in tweepy.Cursor(
                 _API.user_timeline, id=self._user_id, tweet_mode="extended").items(self._limit):
-            tweets.append(_transform_tweet(tweet))
+            self._conn.merge(_transform_tweet(tweet))
 
-        self._conn.bulk_save_objects(tweets)
         self._conn.commit()
 
     def get_favorites(self, watchlist=None, watchwords=None):
@@ -264,13 +277,25 @@ class User:
 
         return results
 
+    def get_favorite_watchlist_percent(self, watchlist):
+        '''
+        Get percentage of likes that are from folks on the watchlist.
+        '''
+        if self._cache_expired(FavoritesSQL):
+            self._fetch_favorites()
+
+        watchlist = _transform_watchlist(watchlist, "watchlist")
+        favorites_on_watchlist = self._conn.query(FavoritesSQL).filter(
+            FavoritesSQL.user_id.in_(watchlist)).count()
+        favorites = self._conn.query(FavoritesSQL).count()
+
+        return favorites_on_watchlist / favorites if favorites != 0 else 0
+
     def _fetch_favorites(self):
-        favorites = []
         for favorite in tweepy.Cursor(
                 _API.favorites, id=self._user_id, tweet_mode="extended").items(self._limit):
-            favorites.append(_transform_tweet(favorite, is_favorite=True))
+            self._conn.merge(_transform_tweet(favorite, is_favorite=True))
 
-        self._conn.bulk_save_objects(favorites)
         self._conn.commit()
 
     def get_friends(self, watchlist=None):
@@ -287,13 +312,42 @@ class User:
 
         return self._conn.query(FriendsSQL).all()
 
+    def get_friends_watchlist_percent(self, watchlist):
+        '''
+        Get percentage of friends that are on the watchlist.
+        '''
+        if self._cache_expired(FriendsSQL):
+            self._fetch_friends()
+
+        watchlist = _transform_watchlist(watchlist, "watchlist")
+        friends_on_watchlist = self._conn.query(FriendsSQL).filter(
+            FriendsSQL.user_id.in_(watchlist)).count()
+        friends = self._conn.query(FriendsSQL).count()
+
+        return friends_on_watchlist / friends if friends != 0 else 0
+
+    def get_friends_watchlist_completion(self, watchlist):
+        '''
+        Get percentage completion of watchlist,
+        based on friends on the watchlist.
+        '''
+        if self._cache_expired(FriendsSQL):
+            self._fetch_friends()
+
+        watchlist = _transform_watchlist(watchlist, "watchlist")
+        friends_on_watchlist = self._conn.query(FriendsSQL).filter(
+            FriendsSQL.user_id.in_(watchlist)).count()
+
+        return (friends_on_watchlist / len(watchlist)
+                if watchlist else 0)
+
     def _fetch_friends(self):
         # Delete to prevent stale entries.
         self._conn.query(FriendsSQL).delete()
 
         friends = []
         for friend_id in tweepy.Cursor(_API.friends_ids, id=self._user_id).items():
-            friends.append(FriendsSQL(
+            self._conn.merge(FriendsSQL(
                 user_id=friend_id, last_updated=datetime.utcnow()))
 
         self._conn.bulk_save_objects(friends)
@@ -311,6 +365,35 @@ class User:
             return self._conn.query(FollowersSQL).filter(FollowersSQL.user_id.in_(watchlist)).all()
 
         return self._conn.query(FollowersSQL).all()
+
+    def get_followers_watchlist_percent(self, watchlist):
+        '''
+        Get percentage of followers that are on the watchlist.
+        '''
+        if self._cache_expired(FollowersSQL):
+            self._fetch_followers()
+
+        watchlist = _transform_watchlist(watchlist, "watchlist")
+        followers_on_watchlist = self._conn.query(FollowersSQL).filter(
+            FollowersSQL.user_id.in_(watchlist)).count()
+        followers = self._conn.query(FollowersSQL).count()
+
+        return followers_on_watchlist / followers if followers != 0 else 0
+
+    def get_followers_watchlist_completion(self, watchlist):
+        '''
+        Get percentage completion of watchlist,
+        based on followers on the watchlist.
+        '''
+        if self._cache_expired(FollowersSQL):
+            self._fetch_followers()
+
+        watchlist = _transform_watchlist(watchlist, "watchlist")
+        followers_on_watchlist = self._conn.query(FollowersSQL).filter(
+            FollowersSQL.user_id.in_(watchlist)).count()
+
+        return (followers_on_watchlist / len(watchlist)
+                if watchlist else 0)
 
     def _fetch_followers(self):
         # Delete to prevent stale entries.
