@@ -58,7 +58,7 @@ def _transform_user(user):
         default_profile=user.default_profile,
         default_profile_image=user.default_profile_image,
         description=user.description,
-        entities=str(user.entities),
+        entities=json.dumps(user.entities),
         favorites_count=user.favourites_count,
         followers_count=user.followers_count,
         friends_count=user.friends_count,
@@ -235,9 +235,12 @@ class User:
         return results
 
     def _fetch_timeline(self):
-        for tweet in tweepy.Cursor(_API.user_timeline, id=self._user_id, tweet_mode="extended").items(self._limit):
-            tweet_sql = _transform_tweet(tweet)
-            self._conn.merge(tweet_sql)
+        tweets = []
+        for tweet in tweepy.Cursor(
+                _API.user_timeline, id=self._user_id, tweet_mode="extended").items(self._limit):
+            tweets.append(_transform_tweet(tweet))
+
+        self._conn.bulk_save_objects(tweets)
         self._conn.commit()
 
     def get_favorites(self, watchlist=None, watchwords=None):
@@ -262,9 +265,12 @@ class User:
         return results
 
     def _fetch_favorites(self):
-        for favorite in tweepy.Cursor(_API.favorites, id=self._user_id, tweet_mode="extended").items(self._limit):
-            favorite_sql = _transform_tweet(favorite, is_favorite=True)
-            self._conn.merge(favorite_sql)
+        favorites = []
+        for favorite in tweepy.Cursor(
+                _API.favorites, id=self._user_id, tweet_mode="extended").items(self._limit):
+            favorites.append(_transform_tweet(favorite, is_favorite=True))
+
+        self._conn.bulk_save_objects(favorites)
         self._conn.commit()
 
     def get_friends(self, watchlist=None):
@@ -285,10 +291,12 @@ class User:
         # Delete to prevent stale entries.
         self._conn.query(FriendsSQL).delete()
 
+        friends = []
         for friend_id in tweepy.Cursor(_API.friends_ids, id=self._user_id).items():
-            friend_sql = FriendsSQL(
-                user_id=friend_id, last_updated=datetime.utcnow())
-            self._conn.merge(friend_sql)
+            friends.append(FriendsSQL(
+                user_id=friend_id, last_updated=datetime.utcnow()))
+
+        self._conn.bulk_save_objects(friends)
 
     def get_followers(self, watchlist=None):
         '''
@@ -308,8 +316,10 @@ class User:
         # Delete to prevent stale entries.
         self._conn.query(FollowersSQL).delete()
 
+        followers = []
         for follower_id in tweepy.Cursor(_API.followers_ids, id=self._user_id).items():
-            follower_sql = FollowersSQL(
-                user_id=follower_id, last_updated=datetime.utcnow())
-            self._conn.add(follower_sql)
+            followers.append(FollowersSQL(user_id=follower_id,
+                                          last_updated=datetime.utcnow()))
+
+        self._conn.bulk_save_objects(followers)
         self._conn.commit()
