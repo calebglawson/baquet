@@ -1,4 +1,4 @@
-# baquet
+# `baquet`
 A library to make analyzing associations between Twitter users easier for humans.
 
 ## Easy Start Guide
@@ -9,7 +9,7 @@ from baquet.user import User
 from baquet.watchlist import Watchlist
 ```
 
-A `User` is a single Twitter user. You can use many get methods to get information about a user, baquet will talk to Twitter for you and preserve the data in its own cache.
+A `User` is a single Twitter user. You can use many get methods to get information about a user, `baquet` will talk to Twitter for you and preserve the data in its own cache.
 
 ```
 u = User(8392018391)
@@ -29,3 +29,5 @@ This returns all the favorited (liked) tweets of this user that were authored by
 ```
 u.get_favorites(watchlist=wl)
 ```
+
+`baquet` can do many more things for you. Happy exploring!
