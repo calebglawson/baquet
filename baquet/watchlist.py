@@ -30,12 +30,21 @@ class Watchlist:
 
         return session
 
-    def add_watchlist(self, user):
+    def add_watchlist(self, users):
         '''
-        Add a user to the watchlist.
+        Add one or more users to the watchlist.
         '''
-        user = WatchlistSQL(id=user.get_user_id())
-        self._conn.merge(user)
+
+        if not isinstance(users, list):
+            users = [users]
+
+        for i, user in enumerate(users):
+            if not isinstance(user, int):
+                users[i] = user.get_user_id()
+
+            users[i] = WatchlistSQL(user_id=users[i])
+
+        self._conn.bulk_save_objects(users)
         self._conn.commit()
 
     def remove_watchlist(self, user):
