@@ -93,7 +93,7 @@ def _transform_tweet(tweet, is_favorite=False):
     if is_favorite:
         return FavoritesSQL(
             created_at=tweet.created_at,
-            entities=str(tweet.entities),
+            entities=json.dumps(tweet.entities),
             favorite_count=tweet.favorite_count,
             tweet_id=tweet.id,
             is_quote_status=tweet.is_quote_status,
@@ -112,7 +112,7 @@ def _transform_tweet(tweet, is_favorite=False):
 
     return TimelineSQL(
         created_at=tweet.created_at,
-        entities=str(tweet.entities),
+        entities=json.dumps(tweet.entities),
         favorite_count=tweet.favorite_count,
         tweet_id=tweet.id,
         is_quote_status=tweet.is_quote_status,
