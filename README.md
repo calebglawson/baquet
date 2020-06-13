@@ -1,7 +1,7 @@
 # baquet
 A library to make analyzing associations between Twitter users easier for humans.
 
-# Easy Start Guide
+## Easy Start Guide
 Get a Twitter API key and generate your tokens, set them in `config.json` in your project's working directory.
 
 ```
