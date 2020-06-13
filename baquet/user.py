@@ -93,9 +93,7 @@ def _transform_tweet(tweet, is_favorite=False):
     if is_favorite:
         return FavoritesSQL(
             created_at=tweet.created_at,
-            entities=str(tweet.entities),
-            extended_entities=str(tweet.extended_entities) if hasattr(
-                tweet, "extended_entities") else None,
+            entities=json.dumps(tweet.entities),
             favorite_count=tweet.favorite_count,
             tweet_id=tweet.id,
             is_quote_status=tweet.is_quote_status,
@@ -105,8 +103,7 @@ def _transform_tweet(tweet, is_favorite=False):
             retweet_count=tweet.retweet_count,
             source=tweet.source,
             source_url=tweet.source_url,
-            text=tweet.text,
-            truncated=tweet.truncated,
+            text=tweet.full_text,
             user_id=tweet.author.id,
             screen_name=tweet.author.screen_name,
             name=tweet.author.name,
@@ -115,9 +112,7 @@ def _transform_tweet(tweet, is_favorite=False):
 
     return TimelineSQL(
         created_at=tweet.created_at,
-        entities=str(tweet.entities),
-        extended_entities=str(tweet.extended_entities) if hasattr(
-            tweet, "extended_entities") else None,
+        entities=json.dumps(tweet.entities),
         favorite_count=tweet.favorite_count,
         tweet_id=tweet.id,
         is_quote_status=tweet.is_quote_status,
@@ -127,8 +122,7 @@ def _transform_tweet(tweet, is_favorite=False):
         retweet_count=tweet.retweet_count,
         source=tweet.source,
         source_url=tweet.source_url,
-        text=tweet.text,
-        truncated=tweet.truncated,
+        text=tweet.retweeted_status.full_text if is_retweet else tweet.full_text,
         retweet_user_id=tweet.retweeted_status.author.id if is_retweet else None,
         retweet_screen_name=tweet.retweeted_status.author.screen_name
         if is_retweet else None,
@@ -241,7 +235,7 @@ class User:
         return results
 
     def _fetch_timeline(self):
-        for tweet in tweepy.Cursor(_API.user_timeline, id=self._user_id).items(self._limit):
+        for tweet in tweepy.Cursor(_API.user_timeline, id=self._user_id, tweet_mode="extended").items(self._limit):
             tweet_sql = _transform_tweet(tweet)
             self._conn.merge(tweet_sql)
         self._conn.commit()
@@ -268,7 +262,7 @@ class User:
         return results
 
     def _fetch_favorites(self):
-        for favorite in tweepy.Cursor(_API.favorites, id=self._user_id).items(self._limit):
+        for favorite in tweepy.Cursor(_API.favorites, id=self._user_id, tweet_mode="extended").items(self._limit):
             favorite_sql = _transform_tweet(favorite, is_favorite=True)
             self._conn.merge(favorite_sql)
         self._conn.commit()

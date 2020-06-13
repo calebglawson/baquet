@@ -15,7 +15,6 @@ class FavoritesSQL(BASE):
     __tablename__ = 'favorites'
     created_at = Column(DateTime)
     entities = Column(String)
-    extended_entities = Column(String)
     favorite_count = Column(Integer)
     tweet_id = Column(Integer, primary_key=True)
     is_quote_status = Column(Boolean)
@@ -25,7 +24,6 @@ class FavoritesSQL(BASE):
     source = Column(String)
     source_url = Column(String)
     text = Column(String)
-    truncated = Column(Boolean)
     user_id = Column(Integer)
     screen_name = Column(String)
     name = Column(String)
@@ -39,7 +37,6 @@ class TimelineSQL(BASE):
     __tablename__ = 'timeline'
     created_at = Column(DateTime)
     entities = Column(String)
-    extended_entities = Column(String)
     favorite_count = Column(Integer)
     tweet_id = Column(Integer, primary_key=True)
     is_quote_status = Column(Boolean)
@@ -49,7 +46,6 @@ class TimelineSQL(BASE):
     source = Column(String)
     source_url = Column(String)
     text = Column(String)
-    truncated = Column(Boolean)
     retweet_user_id = Column(Integer)
     retweet_screen_name = Column(String)
     retweet_name = Column(String)
