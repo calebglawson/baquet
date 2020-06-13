@@ -12,7 +12,6 @@ from sqlalchemy.sql import func
 import tweepy
 
 from .models.user import BASE, UsersSQL, TimelineSQL, FavoritesSQL, FriendsSQL, FollowersSQL
-from .watchlist import Watchlist
 
 
 def _make_config():
@@ -33,7 +32,7 @@ def _make_api():
 
 
 def _transform_watchlist(watchlist, kind):
-    if isinstance(watchlist, Watchlist):
+    if not isinstance(watchlist, list):
         if kind.lower() == "watchlist":
             return watchlist.get_watchlist()
         elif kind.lower() == "watchwords":
