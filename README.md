@@ -17,7 +17,7 @@ for tweet in u.get_timeline():
   print(tweet.text)
 ```
 
-A `Watchlist` is a collection of Twitter users and words that you are interested in searching for on an individual user.
+A `Watchlist` is a collection of Twitter users and words that you are interested in searching for within individual user's data.
 
 ```
 wl = Watchlist("look_at_all_the_people")
@@ -30,4 +30,4 @@ This returns all the favorited (liked) tweets of this user that were authored by
 u.get_favorites(watchlist=wl)
 ```
 
-`baquet` can do many more things for you. Happy exploring!
+`baquet` can do many more things for you. Have fun, and happy exploring!
