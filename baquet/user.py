@@ -7,8 +7,9 @@ import json
 from datetime import datetime
 from math import ceil
 from pathlib import Path
+from sqlalchemy_pagination import paginate
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine, or_
+from sqlalchemy import create_engine, or_, desc
 from sqlalchemy.sql import func
 import tweepy
 
@@ -213,7 +214,7 @@ class User:
             self._conn.merge(user_sql)
             self._conn.commit()
 
-    def get_timeline(self, watchlist=None, watchwords=None):
+    def get_timeline(self, page, page_size=20, watchlist=None, watchwords=None):
         '''
             Get Tweets and Retweets from a user's timeline.
             If the cache is expired,
@@ -224,17 +225,19 @@ class User:
         if watchlist:
             watchlist = _transform_watchlist(watchlist, "watchlist")
             # When filtering, we are not interested in Tweets authored by the user.
-            watchlist.remove(self._user_id)
-            results = self._conn.query(TimelineSQL).filter(or_(
+            if self._user_id in watchlist:
+                watchlist.remove(self._user_id)
+            results = paginate(self._conn.query(TimelineSQL).filter(or_(
                 TimelineSQL.retweet_user_id.in_(watchlist),
                 TimelineSQL.user_id.in_(watchlist)
-            )).all()
+            )).order_by(desc(TimelineSQL.created_at)), page=page, page_size=page_size)
         else:
-            results = self._conn.query(TimelineSQL).all()
+            results = paginate(self._conn.query(TimelineSQL).order_by(desc(TimelineSQL.created_at)),
+                               page=page, page_size=page_size)
 
         if watchwords:
             watchwords = _transform_watchlist(watchwords, "watchwords")
-            results = _filter_for_watchwords(results, watchwords)
+            results.items = _filter_for_watchwords(results.items, watchwords)
 
         return results
 
@@ -260,7 +263,7 @@ class User:
 
         self._conn.commit()
 
-    def get_favorites(self, watchlist=None, watchwords=None):
+    def get_favorites(self, page, page_size=20, watchlist=None, watchwords=None):
         '''
         Get the posts a user has liked.
         If cache is expired, fetch them.
@@ -270,14 +273,15 @@ class User:
 
         if watchlist:
             watchlist = _transform_watchlist(watchlist, "watchlist")
-            results = self._conn.query(FavoritesSQL).filter(
-                FavoritesSQL.user_id.in_(watchlist))
+            results = paginate(self._conn.query(FavoritesSQL).filter(FavoritesSQL.user_id.in_(
+                watchlist)).order_by(desc(FavoritesSQL.created_at)), page=page, page_size=page_size)
         else:
-            results = self._conn.query(FavoritesSQL).all()
+            results = paginate(self._conn.query(FavoritesSQL).order_by(
+                desc(FavoritesSQL.created_at)), page=page, page_size=page_size)
 
         if watchwords:
             watchwords = _transform_watchlist(watchwords, "watchwords")
-            results = _filter_for_watchwords(results, watchwords)
+            results.items = _filter_for_watchwords(results.items, watchwords)
 
         return results
 
@@ -302,7 +306,7 @@ class User:
 
         self._conn.commit()
 
-    def get_friends(self, watchlist=None):
+    def get_friends(self, page, page_size=10000, watchlist=None):
         '''
         Get the users this user is following.
         If cache is expired, fetch them.
@@ -312,9 +316,11 @@ class User:
 
         if watchlist:
             watchlist = _transform_watchlist(watchlist, "watchlist")
-            return self._conn.query(FriendsSQL).filter(FriendsSQL.user_id.in_(watchlist)).all()
+            return paginate(self._conn.query(FriendsSQL).filter(FriendsSQL.user_id.in_(watchlist)),
+                            page=page,
+                            page_size=page_size)
 
-        return self._conn.query(FriendsSQL).all()
+        return paginate(self._conn.query(FriendsSQL), page=page, page_size=page_size)
 
     def get_friends_watchlist_percent(self, watchlist):
         '''
@@ -356,7 +362,7 @@ class User:
 
         self._conn.bulk_save_objects(friends)
 
-    def get_followers(self, watchlist=None):
+    def get_followers(self, page, page_size=10000, watchlist=None):
         '''
         Get the users followed by this user.
         If cache is expired, fetch them.
@@ -366,9 +372,11 @@ class User:
 
         if watchlist:
             watchlist = _transform_watchlist(watchlist, "watchlist")
-            return self._conn.query(FollowersSQL).filter(FollowersSQL.user_id.in_(watchlist)).all()
+            return paginate(self._conn.query(FollowersSQL).filter(
+                FollowersSQL.user_id.in_(watchlist)
+            ), page=page, page_size=page_size)
 
-        return self._conn.query(FollowersSQL).all()
+        return paginate(self._conn.query(FollowersSQL), page=page, page_size=page_size)
 
     def get_followers_watchlist_percent(self, watchlist):
         '''
