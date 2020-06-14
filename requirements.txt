@@ -1,2 +1,3 @@
 tweepy
 sqlalchemy
+sqlalchemy-pagination
