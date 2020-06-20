@@ -9,7 +9,7 @@ from baquet.user import User
 from baquet.watchlist import Watchlist
 ```
 
-A `User` is a single Twitter user. You can use many get methods to get information about a user, `baquet` will talk to Twitter for you and preserve the data in its own cache. You can specify the `cache_expiry` and the fetch `limit` when instantiating a user. Users are instantiated with their unique Twitter id. If you don't have one handy, `baquet` provides the `screen_names_to_user_ids()` helper method for you. Results are paginated with [sqlalchemy-pagination](https://github.com/wizeline/sqlalchemy-pagination).
+A `User` is a single Twitter user. You can use many get methods to get information about a user, `baquet` will talk to Twitter for you and preserve the data in its own cache. You can specify the `cache_expiry` and the fetch `limit` when instantiating a user. Users are instantiated with their unique Twitter id. If you don't have any handy, `baquet` provides the `hydrate_user_identifiers()` helper method for you. Results are paginated with [sqlalchemy-pagination](https://github.com/wizeline/sqlalchemy-pagination).
 
 ```python
 u = User(8392018391)
