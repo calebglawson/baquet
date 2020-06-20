@@ -6,6 +6,7 @@ import re
 import json
 from datetime import datetime
 from math import ceil
+from os import listdir
 from pathlib import Path
 from sqlalchemy_pagination import paginate
 from sqlalchemy.orm import sessionmaker
@@ -13,7 +14,15 @@ from sqlalchemy import create_engine, or_, desc
 from sqlalchemy.sql import func
 import tweepy
 
-from .models.user import BASE, UsersSQL, TimelineSQL, FavoritesSQL, FriendsSQL, FollowersSQL
+from .models.user import (
+    BASE as USER_BASE,
+    UsersSQL,
+    TimelineSQL,
+    FavoritesSQL,
+    FriendsSQL,
+    FollowersSQL
+)
+from .models.directory import BASE as DIR_BASE, DirectorySQL
 
 
 def _make_config():
@@ -135,27 +144,26 @@ def _transform_tweet(tweet, is_favorite=False):
     )
 
 
-def screen_names_to_user_ids(screen_names):
+def hydrate_user_identifiers(user_ids=None, screen_names=None):
     '''
     Input screen names and output a list of user ids.
     Beyond 1500 becomes slow due to Twitter rate limiting,
     be prepared to wait 15 minutes between each 1500.
     '''
-    iterations = ceil(len(screen_names) / 100)
+    user_identifiers = user_ids if user_ids else screen_names
+    iterations = ceil(len(user_identifiers) / 100)
     results = []
     for i in range(iterations):
         start = i * 100
-        end = len(screen_names) if (i + 1) * \
-            100 > len(screen_names) else (i + 1) * 100
-        users = _API.lookup_users(screen_names=screen_names[start:end])
+        end = len(user_identifiers) if (i + 1) * \
+            100 > len(user_identifiers) else (i + 1) * 100
+        if user_ids:
+            users = _API.lookup_users(user_ids=user_identifiers[start:end])
+        else:
+            users = _API.lookup_users(screen_names=user_identifiers[start:end])
         results.extend([user.id for user in users])
 
     return results
-
-
-# All User instances share one.
-_CONFIG = _make_config()
-_API = _make_api()
 
 
 class User:
@@ -180,7 +188,7 @@ class User:
 
         if not database.exists():
             database.parent.mkdir(parents=True, exist_ok=True)
-            BASE.metadata.create_all(engine)
+            USER_BASE.metadata.create_all(engine)
 
         return session
 
@@ -210,6 +218,7 @@ class User:
         user = _API.get_user(user_id=self._user_id)
 
         if user:
+            _DIRECTORY.add(user)
             user_sql = _transform_user(user)
             self._conn.merge(user_sql)
             self._conn.commit()
@@ -418,3 +427,107 @@ class User:
 
         self._conn.bulk_save_objects(followers)
         self._conn.commit()
+
+
+def _transform_directory(user):
+    return DirectorySQL(
+        contributors_enabled=user.contributors_enabled,
+        created_at=user.created_at,
+        default_profile=user.default_profile,
+        default_profile_image=user.default_profile_image,
+        description=user.description,
+        entities=json.dumps(user.entities),
+        favorites_count=user.favourites_count,
+        followers_count=user.followers_count,
+        friends_count=user.friends_count,
+        geo_enabled=user.geo_enabled,
+        has_extended_profile=user.has_extended_profile,
+        user_id=user.id,
+        is_translation_enabled=user.is_translation_enabled,
+        is_translator=user.is_translator,
+        lang=user.lang,
+        listed_count=user.listed_count,
+        location=user.location,
+        name=user.name,
+        needs_phone_verification=user.needs_phone_verification if hasattr(
+            user, "needs_phone_verification") else None,
+        profile_banner_url=user.profile_banner_url if hasattr(
+            user, "profile_banner_url") else None,
+        profile_image_url=user.profile_image_url,
+        protected=user.protected,
+        screen_name=user.screen_name,
+        statuses_count=user.statuses_count,
+        suspended=user.suspended if hasattr(
+            user, "suspended") else None,
+        url=user.url,
+        verified=user.verified,
+        last_updated=datetime.utcnow(),
+    )
+
+
+class Directory:
+    '''
+    Maintain a list of all the users in the directory.
+    '''
+
+    def __init__(self):
+        self._path = Path('./users/')
+        self._conn = self._make_conn()
+
+    def _make_conn(self):
+        database = self._path.joinpath(Path('./directory.db'))
+        engine = create_engine(f'sqlite:///{database}')
+        session = sessionmaker(bind=engine)()
+
+        if not database.exists():
+            database.parent.mkdir(parents=True, exist_ok=True)
+            DIR_BASE.metadata.create_all(engine)
+
+        return session
+
+    def add(self, user):
+        '''
+        Add or update a user in the directory.
+        '''
+        user = _transform_directory(user)
+        self._conn.merge(user)
+        self._conn.commit()
+
+    def scan(self):
+        '''
+        Find the difference between the folder contents and the user directory
+        and update accordingly. Potential to be inefficient.
+        '''
+        users_in_path = set([int(fn.split('.')[0])
+                             for fn in listdir(self._path) if fn.split('.')[0].isnumeric()])
+        users_in_directory = set(
+            [u.user_id for u in self._conn.query(DirectorySQL).all()])
+
+        add = list(users_in_path - users_in_directory)
+        add = hydrate_user_identifiers(user_ids=add)
+        add = [_transform_directory(u) for u in add]
+
+        self._conn.bulk_save_objects(add)
+
+        delete = list(users_in_directory - users_in_path)
+        if delete:
+            self._conn.query(DirectorySQL).filter(
+                DirectorySQL.user_id.in_(delete)).delete(synchronize_session=False)
+
+        self._conn.commit()
+
+    def get(self, page, page_size=20):
+        '''
+        Get users in the directory.
+        '''
+        return paginate(
+            self._conn.query(DirectorySQL).order_by(DirectorySQL.screen_name),
+            page=page,
+            page_size=page_size
+        )
+
+
+# GLOBAL - All User instances share one.
+_CONFIG = _make_config()
+_API = _make_api()
+_DIRECTORY = Directory()
