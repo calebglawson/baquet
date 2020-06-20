@@ -150,9 +150,11 @@ def hydrate_user_identifiers(user_ids=None, screen_names=None):
     Beyond 1500 becomes slow due to Twitter rate limiting,
     be prepared to wait 15 minutes between each 1500.
     '''
-    user_identifiers = user_ids if user_ids else screen_names
-    iterations = ceil(len(user_identifiers) / 100)
     results = []
+    user_identifiers = user_ids if user_ids else screen_names
+    if not user_identifiers:
+        return results
+    iterations = ceil(len(user_identifiers) / 100)
     for i in range(iterations):
         start = i * 100
         end = len(user_identifiers) if (i + 1) * \
@@ -161,7 +163,7 @@ def hydrate_user_identifiers(user_ids=None, screen_names=None):
             users = _API.lookup_users(user_ids=user_identifiers[start:end])
         else:
             users = _API.lookup_users(screen_names=user_identifiers[start:end])
-        results.extend([user.id for user in users])
+        results.extend(users)
 
     return results
 
