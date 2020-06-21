@@ -61,8 +61,10 @@ class Watchlist:
 
     def _make_conn(self):
         database = Path(f'./watchlists/{self._name}.db')
-        engine = create_engine(f'sqlite:///{database}')
-        session = sessionmaker(bind=engine)()
+        engine = create_engine(
+            f'sqlite:///{database}', connect_args={"check_same_thread": False})
+        session = sessionmaker(
+            autocommit=False, autoflush=False, bind=engine)()
 
         if not database.exists():
             database.parent.mkdir(parents=True, exist_ok=True)

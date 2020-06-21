@@ -184,9 +184,11 @@ class User:
         self._conn = self._make_conn()
 
     def _make_conn(self):
-        database = Path(f'./users/{self._user_id}.db')
+        database = Path(f'./users/{self._user_id}.db',
+                        connect_args={"check_same_thread": False})
         engine = create_engine(f'sqlite:///{database}')
-        session = sessionmaker(bind=engine)()
+        session = sessionmaker(
+            autocommit=False, autoflush=False, bind=engine)()
 
         if not database.exists():
             database.parent.mkdir(parents=True, exist_ok=True)
@@ -478,8 +480,10 @@ class Directory:
 
     def _make_conn(self):
         database = self._path.joinpath(Path('./directory.db'))
-        engine = create_engine(f'sqlite:///{database}')
-        session = sessionmaker(bind=engine)()
+        engine = create_engine(
+            f'sqlite:///{database}', connect_args={"check_same_thread": False})
+        session = sessionmaker(
+            autocommit=False, autoflush=False, bind=engine)()
 
         if not database.exists():
             database.parent.mkdir(parents=True, exist_ok=True)
