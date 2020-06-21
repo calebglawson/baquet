@@ -184,9 +184,9 @@ class User:
         self._conn = self._make_conn()
 
     def _make_conn(self):
-        database = Path(f'./users/{self._user_id}.db',
-                        connect_args={"check_same_thread": False})
-        engine = create_engine(f'sqlite:///{database}')
+        database = Path(f'./users/{self._user_id}.db')
+        engine = create_engine(
+            f'sqlite:///{database}', connect_args={"check_same_thread": False})
         session = sessionmaker(
             autocommit=False, autoflush=False, bind=engine)()
 
