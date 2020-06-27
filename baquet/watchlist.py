@@ -104,6 +104,13 @@ class Watchlist:
         '''
         return [user.user_id for user in self._conn.query(WatchlistSQL).all()]
 
+    def get_watchlist_count(self):
+        '''
+        Get the count of users on the watchlist.
+        '''
+
+        return self._conn.query(WatchlistSQL).count()
+
     def add_watchword(self, regex):
         '''
         Add a search term to the watchwords.
@@ -126,6 +133,13 @@ class Watchlist:
         Get the watchwords as a list.
         '''
         return [regex.regex for regex in self._conn.query(WatchwordsSQL).all()]
+
+    def get_watchwords_count(self):
+        '''
+        Get the count of users on the watchwords.
+        '''
+
+        return self._conn.query(WatchwordsSQL).count()
 
     def refresh_watchlist_user_data(self):
         '''
