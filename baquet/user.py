@@ -5,13 +5,13 @@ All of the operations needed to support fetching and filtering Twitter user info
 import re
 import json
 from copy import copy
-from datetime import datetime
+from datetime import datetime, timedelta
 from math import ceil
 from os import listdir
 from pathlib import Path
 from sqlalchemy_pagination import paginate
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine, or_, desc
+from sqlalchemy import create_engine, and_, or_, desc
 from sqlalchemy.sql import func
 import tweepy
 
@@ -23,7 +23,7 @@ from .models.user import (
     FriendsSQL,
     FollowersSQL
 )
-from .models.directory import BASE as DIR_BASE, DirectorySQL
+from .models.directory import BASE as DIR_BASE, DirectorySQL, CacheSQL
 
 
 def _make_config():
@@ -163,24 +163,51 @@ def _serialize_paginated_entities(page):
 
 def hydrate_user_identifiers(user_ids=None, screen_names=None):
     '''
-    Input screen names and output a list of user ids.
+    Input screen names and output a list of users.
     Beyond 1500 becomes slow due to Twitter rate limiting,
     be prepared to wait 15 minutes between each 1500.
     '''
     results = []
-    user_identifiers = user_ids if user_ids else screen_names
+    user_identifiers = user_ids if user_ids else [
+        s_n.lower() for s_n in screen_names]
     if not user_identifiers:
         return results
-    iterations = ceil(len(user_identifiers) / 100)
-    for i in range(iterations):
-        start = i * 100
-        end = len(user_identifiers) if (i + 1) * \
-            100 > len(user_identifiers) else (i + 1) * 100
-        if user_ids:
-            users = _API.lookup_users(user_ids=user_identifiers[start:end])
-        else:
-            users = _API.lookup_users(screen_names=user_identifiers[start:end])
-        results.extend(users)
+
+    cache_results = _DIRECTORY.get_cache(user_identifiers)
+    cache_results = [_serialize_entities(user) for user in cache_results]
+    cache_results_ids = [user.user_id for user in cache_results]
+    cache_results_screen_names = [
+        user.screen_name.lower() for user in cache_results
+    ]
+
+    tweepy_results = []
+    # Remove cached users from the users to look up.
+    user_identifiers = [
+        user_id for user_id in user_identifiers if (
+            user_id not in cache_results_ids and user_id not in cache_results_screen_names
+        )
+    ]
+
+    if user_identifiers:
+        iterations = ceil(len(user_identifiers) / 100)
+        for i in range(iterations):
+            start = i * 100
+            end = len(user_identifiers) if (i + 1) * \
+                100 > len(user_identifiers) else (i + 1) * 100
+            if user_ids:
+                users = _API.lookup_users(user_ids=user_identifiers[start:end])
+            else:
+                users = _API.lookup_users(
+                    screen_names=user_identifiers[start:end])
+
+            for user in users:
+                _DIRECTORY.add_cache(user)
+
+            tweepy_results.extend(users)
+        tweepy_results = [_serialize_entities(_transform_user(result))
+                          for result in results]
+
+    results = cache_results + tweepy_results
 
     return results
 
@@ -242,7 +269,7 @@ class User:
         user = _API.get_user(user_id=self._user_id)
 
         if user:
-            _DIRECTORY.add(user)
+            _DIRECTORY.add_directory(user)
             user_sql = _transform_user(user)
             self._conn.merge(user_sql)
             self._conn.commit()
@@ -490,14 +517,51 @@ def _transform_directory(user):
     )
 
 
+def _transform_cache(user):
+    return CacheSQL(
+        contributors_enabled=user.contributors_enabled,
+        created_at=user.created_at,
+        default_profile=user.default_profile,
+        default_profile_image=user.default_profile_image,
+        description=user.description,
+        entities=json.dumps(user.entities),
+        favorites_count=user.favourites_count,
+        followers_count=user.followers_count,
+        friends_count=user.friends_count,
+        geo_enabled=user.geo_enabled,
+        has_extended_profile=user.has_extended_profile,
+        user_id=user.id,
+        is_translation_enabled=user.is_translation_enabled,
+        is_translator=user.is_translator,
+        lang=user.lang,
+        listed_count=user.listed_count,
+        location=user.location,
+        name=user.name,
+        needs_phone_verification=user.needs_phone_verification if hasattr(
+            user, "needs_phone_verification") else None,
+        profile_banner_url=user.profile_banner_url if hasattr(
+            user, "profile_banner_url") else None,
+        profile_image_url=user.profile_image_url,
+        protected=user.protected,
+        screen_name=user.screen_name,
+        statuses_count=user.statuses_count,
+        suspended=user.suspended if hasattr(
+            user, "suspended") else None,
+        url=user.url,
+        verified=user.verified,
+        last_updated=datetime.utcnow(),
+    )
+
+
 class Directory:
     '''
-    Maintain a list of all the users in the directory.
+    Maintain a list of all the users in the directory and maintain a global user cache.
     '''
 
-    def __init__(self):
+    def __init__(self, cache_expiry=7776000):
         self._path = Path('./users/')
         self._conn = self._make_conn()
+        self._expired_time = datetime.utcnow() - timedelta(seconds=cache_expiry)
 
     def _make_conn(self):
         database = self._path.joinpath(Path('./directory.db'))
@@ -512,7 +576,7 @@ class Directory:
 
         return session
 
-    def add(self, user):
+    def add_directory(self, user):
         '''
         Add or update a user in the directory.
         '''
@@ -520,7 +584,7 @@ class Directory:
         self._conn.merge(user)
         self._conn.commit()
 
-    def scan(self):
+    def scan_and_update_directory(self):
         '''
         Find the difference between the folder contents and the user directory
         and update accordingly. Potential to be inefficient.
@@ -528,13 +592,17 @@ class Directory:
         users_in_path = set([int(fn.split('.')[0])
                              for fn in listdir(self._path) if fn.split('.')[0].isnumeric()])
         users_in_directory = set(
-            [u.user_id for u in self._conn.query(DirectorySQL).all()])
+            [u.user_id for u in self._conn.query(DirectorySQL).filter(
+                DirectorySQL.last_updated > self._expired_time
+            ).all()])
 
         add = list(users_in_path - users_in_directory)
         add = hydrate_user_identifiers(user_ids=add)
         add = [_transform_directory(u) for u in add]
 
-        self._conn.bulk_save_objects(add)
+        for user in add:
+            self._conn.merge(user)
+        self._conn.commit()
 
         delete = list(users_in_directory - users_in_path)
         if delete:
@@ -543,7 +611,7 @@ class Directory:
 
         self._conn.commit()
 
-    def get(self, page, page_size=20):
+    def get_directory(self, page, page_size=20):
         '''
         Get users in the directory.
         '''
@@ -553,6 +621,27 @@ class Directory:
                     DirectorySQL.screen_name),
                 page=page,
                 page_size=page_size
+            )
+        )
+
+    def add_cache(self, user):
+        '''
+        Add a user to the cache.
+        '''
+        self._conn.merge(_transform_cache(user))
+        self._conn.commit()
+
+    def get_cache(self, user_identifiers):
+        '''
+        Get users in the cache.
+        '''
+        return self._conn.query(CacheSQL).filter(
+            and_(
+                or_(
+                    CacheSQL.user_id.in_(user_identifiers),
+                    func.lower(CacheSQL.screen_name).in_(user_identifiers)
+                ),
+                (CacheSQL.last_updated > self._expired_time)
             )
         )
 
