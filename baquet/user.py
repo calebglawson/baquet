@@ -334,7 +334,8 @@ class User:
         for favorite in tweepy.Cursor(
                 _API.favorites, id=self._user_id, tweet_mode="extended").items(self._limit):
             self._conn.merge(_transform_tweet(favorite, is_favorite=True))
-            self._conn.commit()
+
+        self._conn.commit()
 
     def get_friends(self, page, page_size=10000, watchlist=None):
         '''
