@@ -4,6 +4,7 @@ The watchlist houses a list of users and words of interest.
 '''
 
 import json
+from copy import copy
 from pathlib import Path
 from datetime import datetime, timedelta
 from sqlalchemy.orm import sessionmaker
@@ -47,6 +48,14 @@ def _transform_user(user):
         verified=user.verified,
         last_updated=datetime.utcnow(),
     )
+
+
+def _serialize_entities(item):
+    # Without copying, there's some SQLAlchemy weirdness.
+    item = copy(item)
+    if hasattr(item, "entities") and item.entities:
+        item.entities = json.loads(item.entities)
+    return item
 
 
 class Watchlist:
@@ -108,7 +117,7 @@ class Watchlist:
         '''
         Get watchlist users.
         '''
-        return self._conn.query(WatchlistSQL).all()
+        return [_serialize_entities(result) for result in self._conn.query(WatchlistSQL).all()]
 
     def get_watchlist_count(self):
         '''

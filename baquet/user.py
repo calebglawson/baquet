@@ -27,7 +27,7 @@ from .models.directory import BASE as DIR_BASE, DirectorySQL
 
 
 def _make_config():
-    config = open(Path('./config.json'))
+    config = open(Path('./secret.json'))
     return json.load(config)
 
 
@@ -154,8 +154,10 @@ def _serialize_entities(item):
 
 
 def _serialize_paginated_entities(page):
+    new_items = []
     for item in page.items:
-        item = _serialize_entities(item)
+        new_items.append(_serialize_entities(item))
+    page.items = new_items
     return page
 
 
