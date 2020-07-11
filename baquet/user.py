@@ -4,6 +4,7 @@ All of the operations needed to support fetching and filtering Twitter user info
 
 import re
 import json
+from copy import copy
 from datetime import datetime
 from math import ceil
 from os import listdir
@@ -144,6 +145,20 @@ def _transform_tweet(tweet, is_favorite=False):
     )
 
 
+def _serialize_entities(item):
+    # Without copying, there's some SQLAlchemy weirdness.
+    item = copy(item)
+    if hasattr(item, "entities") and item.entities:
+        item.entities = json.loads(item.entities)
+    return item
+
+
+def _serialize_paginated_entities(page):
+    for item in page.items:
+        item = _serialize_entities(item)
+    return page
+
+
 def hydrate_user_identifiers(user_ids=None, screen_names=None):
     '''
     Input screen names and output a list of user ids.
@@ -216,7 +231,10 @@ class User:
         if self._cache_expired(UsersSQL):
             self._fetch_user()
 
-        return self._conn.query(UsersSQL).filter(UsersSQL.user_id == self._user_id).first()
+        return _serialize_entities(
+            self._conn.query(UsersSQL).filter(
+                UsersSQL.user_id == self._user_id).first()
+        )
 
     def _fetch_user(self):
         user = _API.get_user(user_id=self._user_id)
@@ -252,7 +270,7 @@ class User:
             watchwords = _transform_watchlist(watchwords, "watchwords")
             results.items = _filter_for_watchwords(results.items, watchwords)
 
-        return results
+        return _serialize_paginated_entities(results)
 
     def get_retweet_watchlist_percent(self, watchlist):
         '''
@@ -296,7 +314,7 @@ class User:
             watchwords = _transform_watchlist(watchwords, "watchwords")
             results.items = _filter_for_watchwords(results.items, watchwords)
 
-        return results
+        return _serialize_paginated_entities(results)
 
     def get_favorite_watchlist_percent(self, watchlist):
         '''
@@ -316,8 +334,7 @@ class User:
         for favorite in tweepy.Cursor(
                 _API.favorites, id=self._user_id, tweet_mode="extended").items(self._limit):
             self._conn.merge(_transform_tweet(favorite, is_favorite=True))
-
-        self._conn.commit()
+            self._conn.commit()
 
     def get_friends(self, page, page_size=10000, watchlist=None):
         '''
@@ -374,6 +391,7 @@ class User:
                 user_id=friend_id, last_updated=datetime.utcnow()))
 
         self._conn.bulk_save_objects(friends)
+        self._conn.commit()
 
     def get_followers(self, page, page_size=10000, watchlist=None):
         '''
@@ -526,10 +544,13 @@ class Directory:
         '''
         Get users in the directory.
         '''
-        return paginate(
-            self._conn.query(DirectorySQL).order_by(DirectorySQL.screen_name),
-            page=page,
-            page_size=page_size
+        return _serialize_paginated_entities(
+            paginate(
+                self._conn.query(DirectorySQL).order_by(
+                    DirectorySQL.screen_name),
+                page=page,
+                page_size=page_size
+            )
         )
 
 
