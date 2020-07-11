@@ -104,6 +104,12 @@ class Watchlist:
         '''
         return [user.user_id for user in self._conn.query(WatchlistSQL).all()]
 
+    def get_watchlist_users(self):
+        '''
+        Get watchlist users.
+        '''
+        return self._conn.query(WatchlistSQL).all()
+
     def get_watchlist_count(self):
         '''
         Get the count of users on the watchlist.
