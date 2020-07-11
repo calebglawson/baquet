@@ -27,7 +27,7 @@ from .models.directory import BASE as DIR_BASE, DirectorySQL
 
 
 def _make_config():
-    config = open(Path('./secret.json'))
+    config = open(Path('./config.json'))
     return json.load(config)
 
 
