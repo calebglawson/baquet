@@ -27,7 +27,7 @@ from .models.directory import BASE as DIR_BASE, DirectorySQL, CacheSQL
 
 
 def _make_config():
-    config = open(Path('./config.json'))
+    config = open(Path('./secret.json'))
     return json.load(config)
 
 
@@ -205,7 +205,7 @@ def hydrate_user_identifiers(user_ids=None, screen_names=None):
 
             tweepy_results.extend(users)
         tweepy_results = [_serialize_entities(_transform_user(result))
-                          for result in results]
+                          for result in tweepy_results]
 
     results = cache_results + tweepy_results
 
@@ -376,9 +376,27 @@ class User:
 
         if watchlist:
             watchlist = _transform_watchlist(watchlist, "watchlist")
-            return paginate(self._conn.query(FriendsSQL).filter(FriendsSQL.user_id.in_(watchlist)),
-                            page=page,
-                            page_size=page_size)
+            results = paginate(
+                self._conn.query(FriendsSQL).filter(
+                    FriendsSQL.user_id.in_(watchlist)),
+                page=page,
+                page_size=page_size
+            )
+            if results.items:
+                hydrated_results = hydrate_user_identifiers(
+                    user_ids=[result.user_id for result in results.items])
+            else:
+                hydrated_results = []
+
+            new_items = []
+            for item in results.items:
+                for result in hydrated_results:
+                    if item.user_id == result.user_id:
+                        setattr(item, "user", result)
+                        new_items.append(item)
+            results.items = new_items
+
+            return results
 
         return paginate(self._conn.query(FriendsSQL), page=page, page_size=page_size)
 
@@ -433,9 +451,25 @@ class User:
 
         if watchlist:
             watchlist = _transform_watchlist(watchlist, "watchlist")
-            return paginate(self._conn.query(FollowersSQL).filter(
+            results = paginate(self._conn.query(FollowersSQL).filter(
                 FollowersSQL.user_id.in_(watchlist)
             ), page=page, page_size=page_size)
+
+            if results.items:
+                hydrated_results = hydrate_user_identifiers(
+                    user_ids=[result.user_id for result in results.items])
+            else:
+                hydrated_results = []
+
+            new_items = []
+            for item in results.items:
+                for result in hydrated_results:
+                    if item.user_id == result.user_id:
+                        setattr(item, "user", result)
+                        new_items.append(item)
+            results.items = new_items
+
+            return results
 
         return paginate(self._conn.query(FollowersSQL), page=page, page_size=page_size)
 
