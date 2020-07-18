@@ -2,8 +2,11 @@
 Model for a user's info, stores information of interest.
 '''
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+import uuid
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
+from .helpers.custom_types import GUID
 
 BASE = declarative_base()
 
@@ -29,6 +32,10 @@ class FavoritesSQL(BASE):
     name = Column(String)
     last_updated = Column(DateTime)
 
+    # Relationships
+    tags = relationship("FavoritesTagsSQL", back_populates="tweet")
+    notes = relationship("FavoritesNotesSQL")
+
 
 class TimelineSQL(BASE):
     '''
@@ -53,6 +60,10 @@ class TimelineSQL(BASE):
     screen_name = Column(String)
     name = Column(String)
     last_updated = Column(DateTime)
+
+    # Relationships
+    tags = relationship("TimelineTagsSQL", back_populates="tweet")
+    notes = relationship("TimelineNotesSQL")
 
 
 class UsersSQL(BASE):
@@ -106,3 +117,79 @@ class FriendsSQL(BASE):
     __tablename__ = 'friends'
     user_id = Column(Integer, primary_key=True)
     last_updated = Column(DateTime)
+
+
+class TagsSQL(BASE):
+    '''
+    Store all unique tags.
+    '''
+    __tablename__ = 'tags'
+    tag_id = Column(Integer, primary_key=True)
+    text = Column(String)
+
+    # Relationship
+    timeline = relationship("TimelineTagsSQL")
+    favorites = relationship("FavoritesTagsSQL")
+
+
+class TimelineTagsSQL(BASE):
+    '''
+    Link timeline tweets to tags.
+    '''
+    __tablename__ = 'timeline_tags'
+    tweet_id = Column(Integer, ForeignKey(
+        'timeline.tweet_id'), primary_key=True)
+    tag_id = Column(Integer, ForeignKey('tags.tag_id'), primary_key=True)
+
+    # Relationships
+    tag = relationship("TagsSQL", back_populates="timeline")
+    tweet = relationship("TimelineSQL", back_populates="tags")
+
+
+class TimelineNotesSQL(BASE):
+    '''
+    Store notes about particular tweets.
+    '''
+    __tablename__ = 'timeline_notes'
+    tweet_id = Column(Integer, ForeignKey(
+        'timeline.tweet_id'), primary_key=True)
+    note_id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    text = Column(String)
+    created_at = Column(DateTime)
+
+
+class FavoritesTagsSQL(BASE):
+    '''
+    Association
+    Link tweets to tags.
+    '''
+    __tablename__ = 'favorite_tags'
+    tweet_id = Column(Integer, ForeignKey(
+        'favorites.tweet_id'), primary_key=True)
+    tag_id = Column(Integer, ForeignKey('tags.tag_id'), primary_key=True)
+
+    # Relationships
+    tag = relationship("TagsSQL", back_populates="favorites")
+    tweet = relationship("FavoritesSQL", back_populates="tags")
+
+
+class FavoritesNotesSQL(BASE):
+    '''
+    Store notes about particular tweets.
+    '''
+    __tablename__ = 'favorite_notes'
+    tweet_id = Column(Integer, ForeignKey(
+        'favorites.tweet_id'), primary_key=True)
+    note_id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    text = Column(String)
+    created_at = Column(DateTime)
+
+
+class UserNotesSQL(BASE):
+    '''
+    Store notes about the user.
+    '''
+    __tablename__ = 'user_notes'
+    note_id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    text = Column(String)
+    created_at = Column(DateTime)

@@ -21,7 +21,13 @@ from .models.user import (
     TimelineSQL,
     FavoritesSQL,
     FriendsSQL,
-    FollowersSQL
+    FollowersSQL,
+    TagsSQL,
+    TimelineTagsSQL,
+    FavoritesTagsSQL,
+    TimelineNotesSQL,
+    FavoritesNotesSQL,
+    UserNotesSQL,
 )
 from .models.directory import BASE as DIR_BASE, DirectorySQL, CacheSQL
 
@@ -252,6 +258,15 @@ class User:
         '''
         return self._user_id
 
+    def _fetch_user(self):
+        user = _API.get_user(user_id=self._user_id)
+
+        if user:
+            _DIRECTORY.add_directory(user)
+            user_sql = _transform_user(user)
+            self._conn.merge(user_sql)
+            self._conn.commit()
+
     def get_user(self):
         '''
         Get the user as an ORM object.
@@ -265,14 +280,42 @@ class User:
                 UsersSQL.user_id == self._user_id).first()
         )
 
-    def _fetch_user(self):
-        user = _API.get_user(user_id=self._user_id)
+    def get_notes(self, page, page_size=20):
+        '''
+        Get user notes.
+        '''
+        return paginate(
+            self._conn.query(UserNotesSQL).order_by(
+                desc(UserNotesSQL.created_at)),
+            page=page,
+            page_size=page_size
+        )
 
-        if user:
-            _DIRECTORY.add_directory(user)
-            user_sql = _transform_user(user)
-            self._conn.merge(user_sql)
+    def add_note(self, note):
+        '''
+        Add a note to the user.
+        '''
+        note = UserNotesSQL(text=note, created_at=datetime.utcnow())
+        self._conn.add(note)
+        self._conn.commit()
+
+    def remove_note(self, note_id):
+        '''
+        Remove note from user.
+        '''
+        note = self._conn.query(UserNotesSQL).filter(
+            UserNotesSQL.note_id == note_id).first()
+
+        if note:
+            self._conn.delete(note)
             self._conn.commit()
+
+    def _fetch_timeline(self):
+        for tweet in tweepy.Cursor(
+                _API.user_timeline, id=self._user_id, tweet_mode="extended").items(self._limit):
+            self._conn.merge(_transform_tweet(tweet))
+
+        self._conn.commit()
 
     def get_timeline(self, page, page_size=20, watchlist=None, watchwords=None):
         '''
@@ -301,6 +344,54 @@ class User:
 
         return _serialize_paginated_entities(results)
 
+    def _get_tag_id(self, text):
+        text = text.strip()
+        tag = self._conn.query(TagsSQL).filter(TagsSQL.text == text).first()
+
+        if not tag:
+            tag = TagsSQL(text=text)
+            self._conn.add(tag)
+            self._conn.commit()
+
+        return tag.tag_id
+
+    def tag_timeline(self, tweet_id, tag_text):
+        '''
+        Applies a tag to a given tweet.
+        '''
+        tag_id = self._get_tag_id(tag_text)
+
+        timeline_tag = TimelineTagsSQL(tag_id=tag_id, tweet_id=tweet_id)
+        self._conn.merge(timeline_tag)
+        self._conn.commit()
+
+    def untag_timeline(self, tweet_id, tag_id):
+        '''
+        Delete a tag from a tweet.
+        '''
+        tag_id = self._conn.query(TimelineTagsSQL).filter(
+            TimelineTagsSQL.tag_id == tag_id and TimelineTagsSQL.tweet_id == tweet_id).first()
+        self._conn.delete(tag_id)
+        self._conn.commit()
+
+    def add_note_timeline(self, tweet_id, text):
+        '''
+        Add a note to a tweet.
+        '''
+        note = TimelineNotesSQL(
+            tweet_id=tweet_id, text=text, created_at=datetime.utcnow())
+        self._conn.add(note)
+        self._conn.commit()
+
+    def remove_note_timeline(self, tweet_id, note_id):
+        '''
+        Remove note from a tweet.
+        '''
+        note = self._conn.query(TimelineNotesSQL).filter(
+            TimelineNotesSQL.tweet_id == tweet_id and TimelineNotesSQL.note_id == note_id).first()
+        self._conn.delete(note)
+        self._conn.commit()
+
     def get_retweet_watchlist_percent(self, watchlist):
         '''
         Get percentage of retweets that are from folks on the watchlist.
@@ -316,10 +407,10 @@ class User:
 
         return retweets_on_watchlist / retweets if retweets != 0 else 0
 
-    def _fetch_timeline(self):
-        for tweet in tweepy.Cursor(
-                _API.user_timeline, id=self._user_id, tweet_mode="extended").items(self._limit):
-            self._conn.merge(_transform_tweet(tweet))
+    def _fetch_favorites(self):
+        for favorite in tweepy.Cursor(
+                _API.favorites, id=self._user_id, tweet_mode="extended").items(self._limit):
+            self._conn.merge(_transform_tweet(favorite, is_favorite=True))
 
         self._conn.commit()
 
@@ -345,6 +436,43 @@ class User:
 
         return _serialize_paginated_entities(results)
 
+    def tag_favorite(self, tweet_id, tag):
+        '''
+        Applies a tag to a given tweet.
+        '''
+        tag_id = self._get_tag_id(tag)
+
+        favorite_tag = FavoritesTagsSQL(tag_id=tag_id, tweet_id=tweet_id)
+        self._conn.merge(favorite_tag)
+        self._conn.commit()
+
+    def untag_favorite(self, tweet_id, tag_id):
+        '''
+        Delete a tag from a tweet.
+        '''
+        tag_id = self._conn.query(FavoritesTagsSQL).filter(
+            FavoritesTagsSQL.tag_id == tag_id and FavoritesSQL.tweet_id == tweet_id).first()
+        self._conn.delete(tag_id)
+        self._conn.commit()
+
+    def add_note_favorite(self, tweet_id, text):
+        '''
+        Add a note to a tweet.
+        '''
+        note = FavoritesNotesSQL(
+            tweet_id=tweet_id, text=text, created_at=datetime.utcnow())
+        self._conn.add(note)
+        self._conn.commit()
+
+    def remove_note_favorite(self, tweet_id, note_id):
+        '''
+        Remove note from a tweet.
+        '''
+        note = self._conn.query(FavoritesNotesSQL).filter(
+            FavoritesNotesSQL.tweet_id == tweet_id and FavoritesNotesSQL.note_id == note_id).first()
+        self._conn.delete(note)
+        self._conn.commit()
+
     def get_favorite_watchlist_percent(self, watchlist):
         '''
         Get percentage of likes that are from folks on the watchlist.
@@ -358,13 +486,6 @@ class User:
         favorites = self._conn.query(FavoritesSQL).count()
 
         return favorites_on_watchlist / favorites if favorites != 0 else 0
-
-    def _fetch_favorites(self):
-        for favorite in tweepy.Cursor(
-                _API.favorites, id=self._user_id, tweet_mode="extended").items(self._limit):
-            self._conn.merge(_transform_tweet(favorite, is_favorite=True))
-
-        self._conn.commit()
 
     def get_friends(self, page, page_size=10000, watchlist=None):
         '''
