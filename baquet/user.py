@@ -252,6 +252,15 @@ class User:
         '''
         return self._user_id
 
+    def _fetch_user(self):
+        user = _API.get_user(user_id=self._user_id)
+
+        if user:
+            _DIRECTORY.add_directory(user)
+            user_sql = _transform_user(user)
+            self._conn.merge(user_sql)
+            self._conn.commit()
+
     def get_user(self):
         '''
         Get the user as an ORM object.
@@ -265,14 +274,12 @@ class User:
                 UsersSQL.user_id == self._user_id).first()
         )
 
-    def _fetch_user(self):
-        user = _API.get_user(user_id=self._user_id)
+    def _fetch_timeline(self):
+        for tweet in tweepy.Cursor(
+                _API.user_timeline, id=self._user_id, tweet_mode="extended").items(self._limit):
+            self._conn.merge(_transform_tweet(tweet))
 
-        if user:
-            _DIRECTORY.add_directory(user)
-            user_sql = _transform_user(user)
-            self._conn.merge(user_sql)
-            self._conn.commit()
+        self._conn.commit()
 
     def get_timeline(self, page, page_size=20, watchlist=None, watchwords=None):
         '''
@@ -316,10 +323,10 @@ class User:
 
         return retweets_on_watchlist / retweets if retweets != 0 else 0
 
-    def _fetch_timeline(self):
-        for tweet in tweepy.Cursor(
-                _API.user_timeline, id=self._user_id, tweet_mode="extended").items(self._limit):
-            self._conn.merge(_transform_tweet(tweet))
+    def _fetch_favorites(self):
+        for favorite in tweepy.Cursor(
+                _API.favorites, id=self._user_id, tweet_mode="extended").items(self._limit):
+            self._conn.merge(_transform_tweet(favorite, is_favorite=True))
 
         self._conn.commit()
 
@@ -358,13 +365,6 @@ class User:
         favorites = self._conn.query(FavoritesSQL).count()
 
         return favorites_on_watchlist / favorites if favorites != 0 else 0
-
-    def _fetch_favorites(self):
-        for favorite in tweepy.Cursor(
-                _API.favorites, id=self._user_id, tweet_mode="extended").items(self._limit):
-            self._conn.merge(_transform_tweet(favorite, is_favorite=True))
-
-        self._conn.commit()
 
     def get_friends(self, page, page_size=10000, watchlist=None):
         '''
