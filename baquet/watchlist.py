@@ -27,7 +27,7 @@ def _transform_user(user):
         friends_count=user.friends_count,
         geo_enabled=user.geo_enabled,
         has_extended_profile=user.has_extended_profile,
-        user_id=user.id,
+        user_id=user.id_str,
         is_translation_enabled=user.is_translation_enabled,
         is_translator=user.is_translator,
         lang=user.lang,

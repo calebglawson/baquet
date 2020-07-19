@@ -19,7 +19,7 @@ class FavoritesSQL(BASE):
     created_at = Column(DateTime)
     entities = Column(String)
     favorite_count = Column(Integer)
-    tweet_id = Column(Integer, primary_key=True)
+    tweet_id = Column(String, primary_key=True)
     is_quote_status = Column(Boolean)
     lang = Column(String)
     possibly_sensitive = Column(Boolean)
@@ -27,7 +27,7 @@ class FavoritesSQL(BASE):
     source = Column(String)
     source_url = Column(String)
     text = Column(String)
-    user_id = Column(Integer)
+    user_id = Column(String)
     screen_name = Column(String)
     name = Column(String)
     last_updated = Column(DateTime)
@@ -45,7 +45,7 @@ class TimelineSQL(BASE):
     created_at = Column(DateTime)
     entities = Column(String)
     favorite_count = Column(Integer)
-    tweet_id = Column(Integer, primary_key=True)
+    tweet_id = Column(String, primary_key=True)
     is_quote_status = Column(Boolean)
     lang = Column(String)
     possibly_sensitive = Column(Boolean)
@@ -53,10 +53,10 @@ class TimelineSQL(BASE):
     source = Column(String)
     source_url = Column(String)
     text = Column(String)
-    retweet_user_id = Column(Integer)
+    retweet_user_id = Column(String)
     retweet_screen_name = Column(String)
     retweet_name = Column(String)
-    user_id = Column(Integer)
+    user_id = Column(String)
     screen_name = Column(String)
     name = Column(String)
     last_updated = Column(DateTime)
@@ -82,7 +82,7 @@ class UsersSQL(BASE):
     friends_count = Column(Integer)
     geo_enabled = Column(Boolean)
     has_extended_profile = Column(Boolean)
-    user_id = Column(Integer, primary_key=True)
+    user_id = Column(String, primary_key=True)
     is_translation_enabled = Column(Boolean)
     is_translator = Column(Boolean)
     lang = Column(String)
@@ -106,7 +106,7 @@ class FollowersSQL(BASE):
     Account user ids that follow this user.
     '''
     __tablename__ = 'followers'
-    user_id = Column(Integer, primary_key=True)
+    user_id = Column(String, primary_key=True)
     last_updated = Column(DateTime)
 
 
@@ -115,7 +115,7 @@ class FriendsSQL(BASE):
     Account user ids that the subject user follows.
     '''
     __tablename__ = 'friends'
-    user_id = Column(Integer, primary_key=True)
+    user_id = Column(String, primary_key=True)
     last_updated = Column(DateTime)
 
 
@@ -137,7 +137,7 @@ class TimelineTagsSQL(BASE):
     Link timeline tweets to tags.
     '''
     __tablename__ = 'timeline_tags'
-    tweet_id = Column(Integer, ForeignKey(
+    tweet_id = Column(String, ForeignKey(
         'timeline.tweet_id'), primary_key=True)
     tag_id = Column(Integer, ForeignKey('tags.tag_id'), primary_key=True)
 
@@ -151,7 +151,7 @@ class TimelineNotesSQL(BASE):
     Store notes about particular tweets.
     '''
     __tablename__ = 'timeline_notes'
-    tweet_id = Column(Integer, ForeignKey(
+    tweet_id = Column(String, ForeignKey(
         'timeline.tweet_id'), primary_key=True)
     note_id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     text = Column(String)
@@ -164,7 +164,7 @@ class FavoritesTagsSQL(BASE):
     Link tweets to tags.
     '''
     __tablename__ = 'favorite_tags'
-    tweet_id = Column(Integer, ForeignKey(
+    tweet_id = Column(String, ForeignKey(
         'favorites.tweet_id'), primary_key=True)
     tag_id = Column(Integer, ForeignKey('tags.tag_id'), primary_key=True)
 
@@ -178,7 +178,7 @@ class FavoritesNotesSQL(BASE):
     Store notes about particular tweets.
     '''
     __tablename__ = 'favorite_notes'
-    tweet_id = Column(Integer, ForeignKey(
+    tweet_id = Column(String, ForeignKey(
         'favorites.tweet_id'), primary_key=True)
     note_id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     text = Column(String)
