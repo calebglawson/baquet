@@ -25,7 +25,7 @@ class WatchlistSQL(BASE):
     friends_count = Column(Integer, nullable=True)
     geo_enabled = Column(Boolean, nullable=True)
     has_extended_profile = Column(Boolean, nullable=True)
-    user_id = Column(Integer, primary_key=True)
+    user_id = Column(String, primary_key=True)
     is_translation_enabled = Column(Boolean, nullable=True)
     is_translator = Column(Boolean, nullable=True)
     lang = Column(String, nullable=True)

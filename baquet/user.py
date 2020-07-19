@@ -33,7 +33,7 @@ from .models.directory import BASE as DIR_BASE, DirectorySQL, CacheSQL
 
 
 def _make_config():
-    config = open(Path('./config.json'))
+    config = open(Path('./secret.json'))
     return json.load(config)
 
 
@@ -81,7 +81,7 @@ def _transform_user(user):
         friends_count=user.friends_count,
         geo_enabled=user.geo_enabled,
         has_extended_profile=user.has_extended_profile,
-        user_id=user.id,
+        user_id=user.id_str,
         is_translation_enabled=user.is_translation_enabled,
         is_translator=user.is_translator,
         lang=user.lang,
@@ -112,7 +112,7 @@ def _transform_tweet(tweet, is_favorite=False):
             created_at=tweet.created_at,
             entities=json.dumps(tweet.entities),
             favorite_count=tweet.favorite_count,
-            tweet_id=tweet.id,
+            tweet_id=tweet.id_str,
             is_quote_status=tweet.is_quote_status,
             lang=tweet.lang,
             possibly_sensitive=tweet.possibly_sensitive if hasattr(
@@ -121,7 +121,7 @@ def _transform_tweet(tweet, is_favorite=False):
             source=tweet.source,
             source_url=tweet.source_url,
             text=tweet.full_text,
-            user_id=tweet.author.id,
+            user_id=tweet.author.id_str,
             screen_name=tweet.author.screen_name,
             name=tweet.author.name,
             last_updated=datetime.utcnow(),
@@ -131,7 +131,7 @@ def _transform_tweet(tweet, is_favorite=False):
         created_at=tweet.created_at,
         entities=json.dumps(tweet.entities),
         favorite_count=tweet.favorite_count,
-        tweet_id=tweet.id,
+        tweet_id=tweet.id_str,
         is_quote_status=tweet.is_quote_status,
         lang=tweet.lang,
         possibly_sensitive=tweet.possibly_sensitive if hasattr(
@@ -140,11 +140,11 @@ def _transform_tweet(tweet, is_favorite=False):
         source=tweet.source,
         source_url=tweet.source_url,
         text=tweet.retweeted_status.full_text if is_retweet else tweet.full_text,
-        retweet_user_id=tweet.retweeted_status.author.id if is_retweet else None,
+        retweet_user_id=tweet.retweeted_status.author.id_str if is_retweet else None,
         retweet_screen_name=tweet.retweeted_status.author.screen_name
         if is_retweet else None,
         retweet_name=tweet.retweeted_status.author.name if is_retweet else None,
-        user_id=tweet.author.id,
+        user_id=tweet.author.id_str,
         screen_name=tweet.author.screen_name,
         name=tweet.author.name,
         last_updated=datetime.utcnow(),
@@ -224,10 +224,6 @@ class User:
     '''
 
     def __init__(self, user_id, limit=100, cache_expiry=86400):
-
-        if not isinstance(user_id, int):
-            raise TypeError('User id must be an integer.')
-
         self._user_id = user_id
         self._limit = limit
         self._cache_expiry = cache_expiry
@@ -649,7 +645,7 @@ def _transform_directory(user):
         friends_count=user.friends_count,
         geo_enabled=user.geo_enabled,
         has_extended_profile=user.has_extended_profile,
-        user_id=user.id,
+        user_id=user.id_str,
         is_translation_enabled=user.is_translation_enabled,
         is_translator=user.is_translator,
         lang=user.lang,
@@ -685,7 +681,7 @@ def _transform_cache(user):
         friends_count=user.friends_count,
         geo_enabled=user.geo_enabled,
         has_extended_profile=user.has_extended_profile,
-        user_id=user.id,
+        user_id=user.id_str,
         is_translation_enabled=user.is_translation_enabled,
         is_translator=user.is_translator,
         lang=user.lang,
