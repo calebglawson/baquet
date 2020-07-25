@@ -33,7 +33,7 @@ from .models.directory import BASE as DIR_BASE, DirectorySQL, CacheSQL
 
 
 def _make_config():
-    config = open(Path('./config.json'))
+    config = open(Path('./secret.json'))
     return json.load(config)
 
 
@@ -359,6 +359,21 @@ class User:
             TimelineTagsSQL.tweet_id == tweet_id).all()
         return [result.tag for result in results]
 
+    def get_timelines_tag(self, tag_id, page, page_size=20):
+        '''
+        Get the tweets matching a particular tag.
+        '''
+        return paginate(
+            self._conn.query(TimelineSQL).join(
+                TimelineTagsSQL,
+                TimelineSQL.tweet_id == TimelineTagsSQL.tweet_id
+            ).filter(
+                TimelineTagsSQL.tag_id == tag_id
+            ).order_by(desc(TimelineSQL.created_at)),
+            page=page,
+            page_size=page_size
+        )
+
     def tag_timeline(self, tweet_id, tag_text):
         '''
         Applies a tag to a given tweet.
@@ -455,6 +470,20 @@ class User:
         results = self._conn.query(FavoritesTagsSQL).filter(
             FavoritesTagsSQL.tweet_id == tweet_id).all()
         return [result.tag for result in results]
+
+    def get_favorites_tag(self, tag_id, page, page_size=20):
+        '''
+        Get the tweets matching a particular tag.
+        '''
+        return paginate(
+            self._conn.query(FavoritesSQL).join(
+                FavoritesTagsSQL, FavoritesSQL.tweet_id == FavoritesTagsSQL.tweet_id
+            ).filter(
+                FavoritesTagsSQL.tag_id == tag_id
+            ).order_by(desc(FavoritesSQL.created_at)),
+            page=page,
+            page_size=page_size
+        )
 
     def tag_favorite(self, tweet_id, tag):
         '''
