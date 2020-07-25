@@ -33,7 +33,7 @@ from .models.directory import BASE as DIR_BASE, DirectorySQL, CacheSQL
 
 
 def _make_config():
-    config = open(Path('./secret.json'))
+    config = open(Path('./config.json'))
     return json.load(config)
 
 
@@ -351,6 +351,14 @@ class User:
 
         return tag.tag_id
 
+    def get_tags_timeline(self, tweet_id):
+        '''
+        Get the tags on a timeline tweet.
+        '''
+        results = self._conn.query(TimelineTagsSQL).filter(
+            TimelineTagsSQL.tweet_id == tweet_id).all()
+        return [result.tag for result in results]
+
     def tag_timeline(self, tweet_id, tag_text):
         '''
         Applies a tag to a given tweet.
@@ -369,6 +377,14 @@ class User:
             TimelineTagsSQL.tag_id == tag_id and TimelineTagsSQL.tweet_id == tweet_id).first()
         self._conn.delete(tag_id)
         self._conn.commit()
+
+    def get_notes_timeline(self, tweet_id):
+        '''
+        Get notes from a tweet.
+        '''
+        return self._conn.query(
+            TimelineNotesSQL
+        ).filter(TimelineNotesSQL.tweet_id == tweet_id).all()
 
     def add_note_timeline(self, tweet_id, text):
         '''
@@ -432,6 +448,14 @@ class User:
 
         return _serialize_paginated_entities(results)
 
+    def get_tags_favorite(self, tweet_id):
+        '''
+        Get the tags on a favorited tweet.
+        '''
+        results = self._conn.query(FavoritesTagsSQL).filter(
+            FavoritesTagsSQL.tweet_id == tweet_id).all()
+        return [result.tag for result in results]
+
     def tag_favorite(self, tweet_id, tag):
         '''
         Applies a tag to a given tweet.
@@ -450,6 +474,14 @@ class User:
             FavoritesTagsSQL.tag_id == tag_id and FavoritesSQL.tweet_id == tweet_id).first()
         self._conn.delete(tag_id)
         self._conn.commit()
+
+    def get_notes_favorite(self, tweet_id):
+        '''
+        Get notes from a tweet.
+        '''
+        return self._conn.query(
+            FavoritesNotesSQL
+        ).filter(FavoritesNotesSQL.tweet_id == tweet_id).all()
 
     def add_note_favorite(self, tweet_id, text):
         '''
