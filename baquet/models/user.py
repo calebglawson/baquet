@@ -32,10 +32,6 @@ class FavoritesSQL(BASE):
     name = Column(String)
     last_updated = Column(DateTime)
 
-    # Relationships
-    tags = relationship("FavoritesTagsSQL", back_populates="tweet")
-    notes = relationship("FavoritesNotesSQL")
-
 
 class TimelineSQL(BASE):
     '''
@@ -60,10 +56,6 @@ class TimelineSQL(BASE):
     screen_name = Column(String)
     name = Column(String)
     last_updated = Column(DateTime)
-
-    # Relationships
-    tags = relationship("TimelineTagsSQL", back_populates="tweet")
-    notes = relationship("TimelineNotesSQL")
 
 
 class UsersSQL(BASE):
@@ -127,10 +119,6 @@ class TagsSQL(BASE):
     tag_id = Column(Integer, primary_key=True)
     text = Column(String)
 
-    # Relationship
-    timeline = relationship("TimelineTagsSQL")
-    favorites = relationship("FavoritesTagsSQL")
-
 
 class TimelineTagsSQL(BASE):
     '''
@@ -142,8 +130,7 @@ class TimelineTagsSQL(BASE):
     tag_id = Column(Integer, ForeignKey('tags.tag_id'), primary_key=True)
 
     # Relationships
-    tag = relationship("TagsSQL", back_populates="timeline")
-    tweet = relationship("TimelineSQL", back_populates="tags")
+    tag = relationship("TagsSQL")
 
 
 class TimelineNotesSQL(BASE):
@@ -169,8 +156,7 @@ class FavoritesTagsSQL(BASE):
     tag_id = Column(Integer, ForeignKey('tags.tag_id'), primary_key=True)
 
     # Relationships
-    tag = relationship("TagsSQL", back_populates="favorites")
-    tweet = relationship("FavoritesSQL", back_populates="tags")
+    tag = relationship("TagsSQL")
 
 
 class FavoritesNotesSQL(BASE):
