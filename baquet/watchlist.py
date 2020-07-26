@@ -14,6 +14,14 @@ from .models.watchlist import BASE, WatchlistSQL, WatchwordsSQL
 from .user import hydrate_user_identifiers
 
 
+def _serialize_entities(item):
+    # Without copying, there's some SQLAlchemy weirdness.
+    item = copy(item)
+    if hasattr(item, "entities") and item.entities:
+        item.entities = json.loads(item.entities)
+    return item
+
+
 def _transform_user(user):
     return WatchlistSQL(
         contributors_enabled=user.contributors_enabled,
@@ -50,14 +58,6 @@ def _transform_user(user):
     )
 
 
-def _serialize_entities(item):
-    # Without copying, there's some SQLAlchemy weirdness.
-    item = copy(item)
-    if hasattr(item, "entities") and item.entities:
-        item.entities = json.loads(item.entities)
-    return item
-
-
 class Watchlist:
     '''
     From this class, we control data in the watchlist and watchwords.
@@ -81,6 +81,8 @@ class Watchlist:
 
         return session
 
+    # WATCHLIST
+
     def add_watchlist(self, users):
         '''
         Add one or more users to the watchlist.
@@ -98,26 +100,11 @@ class Watchlist:
 
         self._conn.commit()
 
-    def remove_watchlist(self, user):
-        '''
-        Remove a user from the watchlist.
-        '''
-        user = self._conn.query(WatchlistSQL).filter(
-            WatchlistSQL.user_id == user.get_user_id()).first()
-        self._conn.delete(user)
-        self._conn.commit()
-
     def get_watchlist(self):
         '''
         Get the watchlist as a list.
         '''
         return [user.user_id for user in self._conn.query(WatchlistSQL).all()]
-
-    def get_watchlist_users(self):
-        '''
-        Get watchlist users.
-        '''
-        return [_serialize_entities(result) for result in self._conn.query(WatchlistSQL).all()]
 
     def get_watchlist_count(self):
         '''
@@ -126,35 +113,11 @@ class Watchlist:
 
         return self._conn.query(WatchlistSQL).count()
 
-    def add_watchword(self, regex):
+    def get_watchlist_users(self):
         '''
-        Add a search term to the watchwords.
+        Get watchlist users.
         '''
-        regex = WatchwordsSQL(regex=regex)
-        self._conn.merge(regex)
-        self._conn.commit()
-
-    def remove_watchword(self, regex):
-        '''
-        Remove a search term from the watchwords.
-        '''
-        regex = self._conn.query(WatchwordsSQL).filter(
-            WatchwordsSQL.regex == regex).first()
-        self._conn.delete(regex)
-        self._conn.commit()
-
-    def get_watchwords(self):
-        '''
-        Get the watchwords as a list.
-        '''
-        return [regex.regex for regex in self._conn.query(WatchwordsSQL).all()]
-
-    def get_watchwords_count(self):
-        '''
-        Get the count of users on the watchwords.
-        '''
-
-        return self._conn.query(WatchwordsSQL).count()
+        return [_serialize_entities(result) for result in self._conn.query(WatchlistSQL).all()]
 
     def refresh_watchlist_user_data(self):
         '''
@@ -173,4 +136,45 @@ class Watchlist:
         for user in refresh:
             self._conn.merge(_transform_user(user))
 
+        self._conn.commit()
+
+    def remove_watchlist(self, user):
+        '''
+        Remove a user from the watchlist.
+        '''
+        user = self._conn.query(WatchlistSQL).filter(
+            WatchlistSQL.user_id == user.get_user_id()).first()
+        self._conn.delete(user)
+        self._conn.commit()
+
+    # WATCHWORDS
+
+    def add_watchword(self, regex):
+        '''
+        Add a search term to the watchwords.
+        '''
+        regex = WatchwordsSQL(regex=regex)
+        self._conn.merge(regex)
+        self._conn.commit()
+
+    def get_watchwords(self):
+        '''
+        Get the watchwords as a list.
+        '''
+        return [regex.regex for regex in self._conn.query(WatchwordsSQL).all()]
+
+    def get_watchwords_count(self):
+        '''
+        Get the count of users on the watchwords.
+        '''
+
+        return self._conn.query(WatchwordsSQL).count()
+
+    def remove_watchword(self, regex):
+        '''
+        Remove a search term from the watchwords.
+        '''
+        regex = self._conn.query(WatchwordsSQL).filter(
+            WatchwordsSQL.regex == regex).first()
+        self._conn.delete(regex)
         self._conn.commit()

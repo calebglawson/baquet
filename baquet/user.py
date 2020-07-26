@@ -15,6 +15,15 @@ from sqlalchemy import create_engine, and_, or_, desc
 from sqlalchemy.sql import func
 import tweepy
 
+from .constants import (
+    USER,
+    DIRECTORY,
+    CACHE,
+    WATCHLIST,
+    WATCHWORDS,
+    FAVORITE,
+    TIMELINE,
+)
 from .models.user import (
     BASE as USER_BASE,
     UsersSQL,
@@ -33,7 +42,7 @@ from .models.directory import BASE as DIR_BASE, DirectorySQL, CacheSQL
 
 
 def _make_config():
-    config = open(Path('./secret.json'))
+    config = open(Path('./config.json'))
     return json.load(config)
 
 
@@ -49,15 +58,6 @@ def _make_api():
     return api
 
 
-def _transform_watchlist(watchlist, kind):
-    if not isinstance(watchlist, list):
-        if kind.lower() == "watchlist":
-            return watchlist.get_watchlist()
-        elif kind.lower() == "watchwords":
-            return watchlist.get_watchwords()
-    return watchlist
-
-
 def _filter_for_watchwords(results, watchwords):
     matches = []
     for result in results:
@@ -68,8 +68,29 @@ def _filter_for_watchwords(results, watchwords):
     return matches
 
 
-def _transform_user(user):
-    return UsersSQL(
+def _get_watchlist(watchlist, kind):
+    kind = kind.lower()
+    if not isinstance(watchlist, list):
+        if kind == WATCHLIST:
+            return watchlist.get_watchlist()
+        elif kind == WATCHWORDS:
+            return watchlist.get_watchwords()
+    return watchlist
+
+
+def _transform_user(user, kind):
+    kind = kind.lower()
+
+    if kind == USER:
+        target_class = UsersSQL
+    elif kind == DIRECTORY:
+        target_class = DirectorySQL
+    elif kind == CACHE:
+        target_class = CacheSQL
+    else:
+        return None
+
+    return target_class(
         contributors_enabled=user.contributors_enabled,
         created_at=user.created_at,
         default_profile=user.default_profile,
@@ -104,10 +125,11 @@ def _transform_user(user):
     )
 
 
-def _transform_tweet(tweet, is_favorite=False):
+def _transform_tweet(tweet, kind):
+    kind = kind.lower()
     is_retweet = hasattr(tweet, "retweeted_status")
 
-    if is_favorite:
+    if kind == FAVORITE:
         return FavoritesSQL(
             created_at=tweet.created_at,
             entities=json.dumps(tweet.entities),
@@ -210,7 +232,7 @@ def hydrate_user_identifiers(user_ids=None, screen_names=None):
                 _DIRECTORY.add_cache(user)
 
             tweepy_results.extend(users)
-        tweepy_results = [_serialize_entities(_transform_user(result))
+        tweepy_results = [_serialize_entities(_transform_user(result, kind=USER))
                           for result in tweepy_results]
 
     results = cache_results + tweepy_results
@@ -229,6 +251,12 @@ class User:
         self._cache_expiry = cache_expiry
         self._conn = self._make_conn()
 
+    def _cache_expired(self, table):
+        last_updated = self._conn.query(func.max(table.last_updated)).scalar()
+        elapsed = datetime.utcnow() - last_updated if last_updated else None
+
+        return not elapsed or elapsed.seconds > self._cache_expiry
+
     def _make_conn(self):
         database = Path(f'./users/{self._user_id}.db')
         engine = create_engine(
@@ -242,26 +270,35 @@ class User:
 
         return session
 
-    def _cache_expired(self, table):
-        last_updated = self._conn.query(func.max(table.last_updated)).scalar()
-        elapsed = datetime.utcnow() - last_updated if last_updated else None
-
-        return not elapsed or elapsed.seconds > self._cache_expiry
-
-    def get_user_id(self):
-        '''
-        Get the user id.
-        '''
-        return self._user_id
+    # USER
 
     def _fetch_user(self):
         user = _API.get_user(user_id=self._user_id)
 
         if user:
             _DIRECTORY.add_directory(user)
-            user_sql = _transform_user(user)
+            user_sql = _transform_user(user, kind=USER)
             self._conn.merge(user_sql)
             self._conn.commit()
+
+    def add_note_user(self, text):
+        '''
+        Add a note to the user.
+        '''
+        note = UserNotesSQL(text=text, created_at=datetime.utcnow())
+        self._conn.add(note)
+        self._conn.commit()
+
+    def get_notes_user(self, page, page_size=20):
+        '''
+        Get user notes.
+        '''
+        return paginate(
+            self._conn.query(UserNotesSQL).order_by(
+                desc(UserNotesSQL.created_at)),
+            page=page,
+            page_size=page_size
+        )
 
     def get_user(self):
         '''
@@ -276,26 +313,13 @@ class User:
                 UsersSQL.user_id == self._user_id).first()
         )
 
-    def get_notes(self, page, page_size=20):
+    def get_user_id(self):
         '''
-        Get user notes.
+        Get the user id.
         '''
-        return paginate(
-            self._conn.query(UserNotesSQL).order_by(
-                desc(UserNotesSQL.created_at)),
-            page=page,
-            page_size=page_size
-        )
+        return self._user_id
 
-    def add_note(self, note):
-        '''
-        Add a note to the user.
-        '''
-        note = UserNotesSQL(text=note, created_at=datetime.utcnow())
-        self._conn.add(note)
-        self._conn.commit()
-
-    def remove_note(self, note_id):
+    def remove_note_user(self, note_id):
         '''
         Remove note from user.
         '''
@@ -306,12 +330,64 @@ class User:
             self._conn.delete(note)
             self._conn.commit()
 
+    # TIMELINE
+
     def _fetch_timeline(self):
         for tweet in tweepy.Cursor(
                 _API.user_timeline, id=self._user_id, tweet_mode="extended").items(self._limit):
-            self._conn.merge(_transform_tweet(tweet))
+            self._conn.merge(_transform_tweet(tweet, kind=TIMELINE))
 
         self._conn.commit()
+
+    def add_note_timeline(self, tweet_id, text):
+        '''
+        Add a note to a tweet.
+        '''
+        note = TimelineNotesSQL(
+            tweet_id=tweet_id, text=text, created_at=datetime.utcnow())
+        self._conn.add(note)
+        self._conn.commit()
+
+    def add_tag_timeline(self, tweet_id, tag_text):
+        '''
+        Applies a tag to a given tweet.
+        '''
+        tag_id = self._get_tag_id(tag_text)
+
+        timeline_tag = TimelineTagsSQL(tag_id=tag_id, tweet_id=tweet_id)
+        self._conn.merge(timeline_tag)
+        self._conn.commit()
+
+    def get_notes_timeline(self, tweet_id):
+        '''
+        Get notes from a tweet.
+        '''
+        return self._conn.query(
+            TimelineNotesSQL
+        ).filter(TimelineNotesSQL.tweet_id == tweet_id).all()
+
+    def get_retweet_watchlist_percent(self, watchlist):
+        '''
+        Get percentage of retweets that are from folks on the watchlist.
+        '''
+        if self._cache_expired(TimelineSQL):
+            self._fetch_timeline()
+
+        watchlist = _get_watchlist(watchlist, TIMELINE)
+        retweets_on_watchlist = self._conn.query(TimelineSQL).filter(
+            TimelineSQL.retweet_user_id.in_(watchlist)).count()
+        retweets = self._conn.query(
+            TimelineSQL).filter(TimelineSQL.retweet_user_id is not None).count()
+
+        return retweets_on_watchlist / retweets if retweets != 0 else 0
+
+    def get_tags_timeline(self, tweet_id):
+        '''
+        Get the tags on a timeline tweet.
+        '''
+        results = self._conn.query(TimelineTagsSQL).filter(
+            TimelineTagsSQL.tweet_id == tweet_id).all()
+        return [result.tag for result in results]
 
     def get_timeline(self, page, page_size=20, watchlist=None, watchwords=None):
         '''
@@ -322,7 +398,7 @@ class User:
             self._fetch_timeline()
 
         if watchlist:
-            watchlist = _transform_watchlist(watchlist, "watchlist")
+            watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
             # When filtering, we are not interested in Tweets authored by the user.
             if self._user_id in watchlist:
                 watchlist.remove(self._user_id)
@@ -335,31 +411,12 @@ class User:
                                page=page, page_size=page_size)
 
         if watchwords:
-            watchwords = _transform_watchlist(watchwords, "watchwords")
+            watchwords = _get_watchlist(watchwords, kind=WATCHWORDS)
             results.items = _filter_for_watchwords(results.items, watchwords)
 
         return _serialize_paginated_entities(results)
 
-    def _get_tag_id(self, text):
-        text = text.strip()
-        tag = self._conn.query(TagsSQL).filter(TagsSQL.text == text).first()
-
-        if not tag:
-            tag = TagsSQL(text=text)
-            self._conn.add(tag)
-            self._conn.commit()
-
-        return tag.tag_id
-
-    def get_tags_timeline(self, tweet_id):
-        '''
-        Get the tags on a timeline tweet.
-        '''
-        results = self._conn.query(TimelineTagsSQL).filter(
-            TimelineTagsSQL.tweet_id == tweet_id).all()
-        return [result.tag for result in results]
-
-    def get_timelines_tag(self, tag_id, page, page_size=20):
+    def get_timeline_tagged(self, tag_id, page, page_size=20):
         '''
         Get the tweets matching a particular tag.
         '''
@@ -374,42 +431,6 @@ class User:
             page_size=page_size
         )
 
-    def tag_timeline(self, tweet_id, tag_text):
-        '''
-        Applies a tag to a given tweet.
-        '''
-        tag_id = self._get_tag_id(tag_text)
-
-        timeline_tag = TimelineTagsSQL(tag_id=tag_id, tweet_id=tweet_id)
-        self._conn.merge(timeline_tag)
-        self._conn.commit()
-
-    def untag_timeline(self, tweet_id, tag_id):
-        '''
-        Delete a tag from a tweet.
-        '''
-        tag_id = self._conn.query(TimelineTagsSQL).filter(
-            TimelineTagsSQL.tag_id == tag_id and TimelineTagsSQL.tweet_id == tweet_id).first()
-        self._conn.delete(tag_id)
-        self._conn.commit()
-
-    def get_notes_timeline(self, tweet_id):
-        '''
-        Get notes from a tweet.
-        '''
-        return self._conn.query(
-            TimelineNotesSQL
-        ).filter(TimelineNotesSQL.tweet_id == tweet_id).all()
-
-    def add_note_timeline(self, tweet_id, text):
-        '''
-        Add a note to a tweet.
-        '''
-        note = TimelineNotesSQL(
-            tweet_id=tweet_id, text=text, created_at=datetime.utcnow())
-        self._conn.add(note)
-        self._conn.commit()
-
     def remove_note_timeline(self, tweet_id, note_id):
         '''
         Remove note from a tweet.
@@ -419,27 +440,57 @@ class User:
         self._conn.delete(note)
         self._conn.commit()
 
-    def get_retweet_watchlist_percent(self, watchlist):
+    def remove_tag_timeline(self, tweet_id, tag_id):
         '''
-        Get percentage of retweets that are from folks on the watchlist.
+        Delete a tag from a tweet.
         '''
-        if self._cache_expired(TimelineSQL):
-            self._fetch_timeline()
+        tag_id = self._conn.query(TimelineTagsSQL).filter(
+            TimelineTagsSQL.tag_id == tag_id and TimelineTagsSQL.tweet_id == tweet_id).first()
+        self._conn.delete(tag_id)
+        self._conn.commit()
 
-        watchlist = _transform_watchlist(watchlist, "watchlist")
-        retweets_on_watchlist = self._conn.query(TimelineSQL).filter(
-            TimelineSQL.retweet_user_id.in_(watchlist)).count()
-        retweets = self._conn.query(
-            TimelineSQL).filter(TimelineSQL.retweet_user_id is not None).count()
-
-        return retweets_on_watchlist / retweets if retweets != 0 else 0
+    # FAVORITES
 
     def _fetch_favorites(self):
         for favorite in tweepy.Cursor(
                 _API.favorites, id=self._user_id, tweet_mode="extended").items(self._limit):
-            self._conn.merge(_transform_tweet(favorite, is_favorite=True))
+            self._conn.merge(_transform_tweet(
+                favorite, kind=FAVORITE))
 
         self._conn.commit()
+
+    def add_note_favorite(self, tweet_id, text):
+        '''
+        Add a note to a tweet.
+        '''
+        note = FavoritesNotesSQL(
+            tweet_id=tweet_id, text=text, created_at=datetime.utcnow())
+        self._conn.add(note)
+        self._conn.commit()
+
+    def add_tag_favorite(self, tweet_id, tag_text):
+        '''
+        Applies a tag to a given tweet.
+        '''
+        tag_id = self._get_tag_id(tag_text)
+
+        favorite_tag = FavoritesTagsSQL(tag_id=tag_id, tweet_id=tweet_id)
+        self._conn.merge(favorite_tag)
+        self._conn.commit()
+
+    def get_favorite_watchlist_percent(self, watchlist):
+        '''
+        Get percentage of likes that are from folks on the watchlist.
+        '''
+        if self._cache_expired(FavoritesSQL):
+            self._fetch_favorites()
+
+        watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
+        favorites_on_watchlist = self._conn.query(FavoritesSQL).filter(
+            FavoritesSQL.user_id.in_(watchlist)).count()
+        favorites = self._conn.query(FavoritesSQL).count()
+
+        return favorites_on_watchlist / favorites if favorites != 0 else 0
 
     def get_favorites(self, page, page_size=20, watchlist=None, watchwords=None):
         '''
@@ -450,7 +501,7 @@ class User:
             self._fetch_favorites()
 
         if watchlist:
-            watchlist = _transform_watchlist(watchlist, "watchlist")
+            watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
             results = paginate(self._conn.query(FavoritesSQL).filter(FavoritesSQL.user_id.in_(
                 watchlist)).order_by(desc(FavoritesSQL.created_at)), page=page, page_size=page_size)
         else:
@@ -458,20 +509,12 @@ class User:
                 desc(FavoritesSQL.created_at)), page=page, page_size=page_size)
 
         if watchwords:
-            watchwords = _transform_watchlist(watchwords, "watchwords")
+            watchwords = _get_watchlist(watchwords, kind=WATCHWORDS)
             results.items = _filter_for_watchwords(results.items, watchwords)
 
         return _serialize_paginated_entities(results)
 
-    def get_tags_favorite(self, tweet_id):
-        '''
-        Get the tags on a favorited tweet.
-        '''
-        results = self._conn.query(FavoritesTagsSQL).filter(
-            FavoritesTagsSQL.tweet_id == tweet_id).all()
-        return [result.tag for result in results]
-
-    def get_favorites_tag(self, tag_id, page, page_size=20):
+    def get_favorites_tagged(self, tag_id, page, page_size=20):
         '''
         Get the tweets matching a particular tag.
         '''
@@ -485,25 +528,6 @@ class User:
             page_size=page_size
         )
 
-    def tag_favorite(self, tweet_id, tag):
-        '''
-        Applies a tag to a given tweet.
-        '''
-        tag_id = self._get_tag_id(tag)
-
-        favorite_tag = FavoritesTagsSQL(tag_id=tag_id, tweet_id=tweet_id)
-        self._conn.merge(favorite_tag)
-        self._conn.commit()
-
-    def untag_favorite(self, tweet_id, tag_id):
-        '''
-        Delete a tag from a tweet.
-        '''
-        tag_id = self._conn.query(FavoritesTagsSQL).filter(
-            FavoritesTagsSQL.tag_id == tag_id and FavoritesSQL.tweet_id == tweet_id).first()
-        self._conn.delete(tag_id)
-        self._conn.commit()
-
     def get_notes_favorite(self, tweet_id):
         '''
         Get notes from a tweet.
@@ -512,14 +536,13 @@ class User:
             FavoritesNotesSQL
         ).filter(FavoritesNotesSQL.tweet_id == tweet_id).all()
 
-    def add_note_favorite(self, tweet_id, text):
+    def get_tags_favorite(self, tweet_id):
         '''
-        Add a note to a tweet.
+        Get the tags on a favorited tweet.
         '''
-        note = FavoritesNotesSQL(
-            tweet_id=tweet_id, text=text, created_at=datetime.utcnow())
-        self._conn.add(note)
-        self._conn.commit()
+        results = self._conn.query(FavoritesTagsSQL).filter(
+            FavoritesTagsSQL.tweet_id == tweet_id).all()
+        return [result.tag for result in results]
 
     def remove_note_favorite(self, tweet_id, note_id):
         '''
@@ -530,19 +553,28 @@ class User:
         self._conn.delete(note)
         self._conn.commit()
 
-    def get_favorite_watchlist_percent(self, watchlist):
+    def remove_tag_favorite(self, tweet_id, tag_id):
         '''
-        Get percentage of likes that are from folks on the watchlist.
+        Delete a tag from a tweet.
         '''
-        if self._cache_expired(FavoritesSQL):
-            self._fetch_favorites()
+        tag_id = self._conn.query(FavoritesTagsSQL).filter(
+            FavoritesTagsSQL.tag_id == tag_id and FavoritesSQL.tweet_id == tweet_id).first()
+        self._conn.delete(tag_id)
+        self._conn.commit()
 
-        watchlist = _transform_watchlist(watchlist, "watchlist")
-        favorites_on_watchlist = self._conn.query(FavoritesSQL).filter(
-            FavoritesSQL.user_id.in_(watchlist)).count()
-        favorites = self._conn.query(FavoritesSQL).count()
+    # FRIENDS
 
-        return favorites_on_watchlist / favorites if favorites != 0 else 0
+    def _fetch_friends(self):
+        # Delete to prevent stale entries.
+        self._conn.query(FriendsSQL).delete()
+
+        friends = []
+        for friend_id in tweepy.Cursor(_API.friends_ids, id=self._user_id).items():
+            self._conn.merge(FriendsSQL(
+                user_id=friend_id, last_updated=datetime.utcnow()))
+
+        self._conn.bulk_save_objects(friends)
+        self._conn.commit()
 
     def get_friends(self, page, page_size=10000, watchlist=None):
         '''
@@ -553,7 +585,7 @@ class User:
             self._fetch_friends()
 
         if watchlist:
-            watchlist = _transform_watchlist(watchlist, "watchlist")
+            watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
             results = paginate(
                 self._conn.query(FriendsSQL).filter(
                     FriendsSQL.user_id.in_(watchlist)),
@@ -578,20 +610,6 @@ class User:
 
         return paginate(self._conn.query(FriendsSQL), page=page, page_size=page_size)
 
-    def get_friends_watchlist_percent(self, watchlist):
-        '''
-        Get percentage of friends that are on the watchlist.
-        '''
-        if self._cache_expired(FriendsSQL):
-            self._fetch_friends()
-
-        watchlist = _transform_watchlist(watchlist, "watchlist")
-        friends_on_watchlist = self._conn.query(FriendsSQL).filter(
-            FriendsSQL.user_id.in_(watchlist)).count()
-        friends = self._conn.query(FriendsSQL).count()
-
-        return friends_on_watchlist / friends if friends != 0 else 0
-
     def get_friends_watchlist_completion(self, watchlist):
         '''
         Get percentage completion of watchlist,
@@ -600,23 +618,40 @@ class User:
         if self._cache_expired(FriendsSQL):
             self._fetch_friends()
 
-        watchlist = _transform_watchlist(watchlist, "watchlist")
+        watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
         friends_on_watchlist = self._conn.query(FriendsSQL).filter(
             FriendsSQL.user_id.in_(watchlist)).count()
 
         return (friends_on_watchlist / len(watchlist)
                 if watchlist else 0)
 
-    def _fetch_friends(self):
+    def get_friends_watchlist_percent(self, watchlist):
+        '''
+        Get percentage of friends that are on the watchlist.
+        '''
+        if self._cache_expired(FriendsSQL):
+            self._fetch_friends()
+
+        watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
+        friends_on_watchlist = self._conn.query(FriendsSQL).filter(
+            FriendsSQL.user_id.in_(watchlist)).count()
+        friends = self._conn.query(FriendsSQL).count()
+
+        return friends_on_watchlist / friends if friends != 0 else 0
+
+
+# FOLLOWERS
+
+    def _fetch_followers(self):
         # Delete to prevent stale entries.
-        self._conn.query(FriendsSQL).delete()
+        self._conn.query(FollowersSQL).delete()
 
-        friends = []
-        for friend_id in tweepy.Cursor(_API.friends_ids, id=self._user_id).items():
-            self._conn.merge(FriendsSQL(
-                user_id=friend_id, last_updated=datetime.utcnow()))
+        followers = []
+        for follower_id in tweepy.Cursor(_API.followers_ids, id=self._user_id).items():
+            followers.append(FollowersSQL(user_id=follower_id,
+                                          last_updated=datetime.utcnow()))
 
-        self._conn.bulk_save_objects(friends)
+        self._conn.bulk_save_objects(followers)
         self._conn.commit()
 
     def get_followers(self, page, page_size=10000, watchlist=None):
@@ -628,7 +663,7 @@ class User:
             self._fetch_followers()
 
         if watchlist:
-            watchlist = _transform_watchlist(watchlist, "watchlist")
+            watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
             results = paginate(self._conn.query(FollowersSQL).filter(
                 FollowersSQL.user_id.in_(watchlist)
             ), page=page, page_size=page_size)
@@ -651,20 +686,6 @@ class User:
 
         return paginate(self._conn.query(FollowersSQL), page=page, page_size=page_size)
 
-    def get_followers_watchlist_percent(self, watchlist):
-        '''
-        Get percentage of followers that are on the watchlist.
-        '''
-        if self._cache_expired(FollowersSQL):
-            self._fetch_followers()
-
-        watchlist = _transform_watchlist(watchlist, "watchlist")
-        followers_on_watchlist = self._conn.query(FollowersSQL).filter(
-            FollowersSQL.user_id.in_(watchlist)).count()
-        followers = self._conn.query(FollowersSQL).count()
-
-        return followers_on_watchlist / followers if followers != 0 else 0
-
     def get_followers_watchlist_completion(self, watchlist):
         '''
         Get percentage completion of watchlist,
@@ -673,96 +694,53 @@ class User:
         if self._cache_expired(FollowersSQL):
             self._fetch_followers()
 
-        watchlist = _transform_watchlist(watchlist, "watchlist")
+        watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
         followers_on_watchlist = self._conn.query(FollowersSQL).filter(
             FollowersSQL.user_id.in_(watchlist)).count()
 
         return (followers_on_watchlist / len(watchlist)
                 if watchlist else 0)
 
-    def _fetch_followers(self):
-        # Delete to prevent stale entries.
-        self._conn.query(FollowersSQL).delete()
+    def get_followers_watchlist_percent(self, watchlist):
+        '''
+        Get percentage of followers that are on the watchlist.
+        '''
+        if self._cache_expired(FollowersSQL):
+            self._fetch_followers()
 
-        followers = []
-        for follower_id in tweepy.Cursor(_API.followers_ids, id=self._user_id).items():
-            followers.append(FollowersSQL(user_id=follower_id,
-                                          last_updated=datetime.utcnow()))
+        watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
+        followers_on_watchlist = self._conn.query(FollowersSQL).filter(
+            FollowersSQL.user_id.in_(watchlist)).count()
+        followers = self._conn.query(FollowersSQL).count()
 
-        self._conn.bulk_save_objects(followers)
-        self._conn.commit()
+        return followers_on_watchlist / followers if followers != 0 else 0
 
+    # TAGS
 
-def _transform_directory(user):
-    return DirectorySQL(
-        contributors_enabled=user.contributors_enabled,
-        created_at=user.created_at,
-        default_profile=user.default_profile,
-        default_profile_image=user.default_profile_image,
-        description=user.description,
-        entities=json.dumps(user.entities),
-        favorites_count=user.favourites_count,
-        followers_count=user.followers_count,
-        friends_count=user.friends_count,
-        geo_enabled=user.geo_enabled,
-        has_extended_profile=user.has_extended_profile,
-        user_id=user.id_str,
-        is_translation_enabled=user.is_translation_enabled,
-        is_translator=user.is_translator,
-        lang=user.lang,
-        listed_count=user.listed_count,
-        location=user.location,
-        name=user.name,
-        needs_phone_verification=user.needs_phone_verification if hasattr(
-            user, "needs_phone_verification") else None,
-        profile_banner_url=user.profile_banner_url if hasattr(
-            user, "profile_banner_url") else None,
-        profile_image_url=user.profile_image_url,
-        protected=user.protected,
-        screen_name=user.screen_name,
-        statuses_count=user.statuses_count,
-        suspended=user.suspended if hasattr(
-            user, "suspended") else None,
-        url=user.url,
-        verified=user.verified,
-        last_updated=datetime.utcnow(),
-    )
+    def _get_tag_id(self, text):
+        text = text.strip()
+        tag = self._conn.query(TagsSQL).filter(TagsSQL.text == text).first()
 
+        if not tag:
+            tag = TagsSQL(text=text)
+            self._conn.add(tag)
+            self._conn.commit()
 
-def _transform_cache(user):
-    return CacheSQL(
-        contributors_enabled=user.contributors_enabled,
-        created_at=user.created_at,
-        default_profile=user.default_profile,
-        default_profile_image=user.default_profile_image,
-        description=user.description,
-        entities=json.dumps(user.entities),
-        favorites_count=user.favourites_count,
-        followers_count=user.followers_count,
-        friends_count=user.friends_count,
-        geo_enabled=user.geo_enabled,
-        has_extended_profile=user.has_extended_profile,
-        user_id=user.id_str,
-        is_translation_enabled=user.is_translation_enabled,
-        is_translator=user.is_translator,
-        lang=user.lang,
-        listed_count=user.listed_count,
-        location=user.location,
-        name=user.name,
-        needs_phone_verification=user.needs_phone_verification if hasattr(
-            user, "needs_phone_verification") else None,
-        profile_banner_url=user.profile_banner_url if hasattr(
-            user, "profile_banner_url") else None,
-        profile_image_url=user.profile_image_url,
-        protected=user.protected,
-        screen_name=user.screen_name,
-        statuses_count=user.statuses_count,
-        suspended=user.suspended if hasattr(
-            user, "suspended") else None,
-        url=user.url,
-        verified=user.verified,
-        last_updated=datetime.utcnow(),
-    )
+        return tag.tag_id
+
+    def get_tags(self, kind):
+        '''
+        Get the tags that apply to a given concept.
+        '''
+        if kind == FAVORITE:
+            query_class = FavoritesTagsSQL
+        elif kind == TIMELINE:
+            query_class = TimelineTagsSQL
+        else:
+            return None
+        return self._conn.query(TagsSQL).join(
+            query_class, query_class.tag_id == TagsSQL.tag_id
+        ).all()
 
 
 class Directory:
@@ -788,39 +766,14 @@ class Directory:
 
         return session
 
+    # DIRECTORY
+
     def add_directory(self, user):
         '''
         Add or update a user in the directory.
         '''
-        user = _transform_directory(user)
+        user = _transform_user(user, kind=DIRECTORY)
         self._conn.merge(user)
-        self._conn.commit()
-
-    def scan_and_update_directory(self):
-        '''
-        Find the difference between the folder contents and the user directory
-        and update accordingly. Potential to be inefficient.
-        '''
-        users_in_path = set([int(fn.split('.')[0])
-                             for fn in listdir(self._path) if fn.split('.')[0].isnumeric()])
-        users_in_directory = set(
-            [u.user_id for u in self._conn.query(DirectorySQL).filter(
-                DirectorySQL.last_updated > self._expired_time
-            ).all()])
-
-        add = list(users_in_path - users_in_directory)
-        add = hydrate_user_identifiers(user_ids=add)
-        add = [_transform_directory(u) for u in add]
-
-        for user in add:
-            self._conn.merge(user)
-        self._conn.commit()
-
-        delete = list(users_in_directory - users_in_path)
-        if delete:
-            self._conn.query(DirectorySQL).filter(
-                DirectorySQL.user_id.in_(delete)).delete(synchronize_session=False)
-
         self._conn.commit()
 
     def get_directory(self, page, page_size=20):
@@ -836,11 +789,40 @@ class Directory:
             )
         )
 
+    def scan_and_update_directory(self):
+        '''
+        Find the difference between the folder contents and the user directory
+        and update accordingly. Potential to be inefficient.
+        '''
+        users_in_path = set([int(fn.split('.')[0])
+                             for fn in listdir(self._path) if fn.split('.')[0].isnumeric()])
+        users_in_directory = set(
+            [u.user_id for u in self._conn.query(DirectorySQL).filter(
+                DirectorySQL.last_updated > self._expired_time
+            ).all()])
+
+        add = list(users_in_path - users_in_directory)
+        add = hydrate_user_identifiers(user_ids=add)
+        add = [_transform_user(u, kind=DIRECTORY) for u in add]
+
+        for user in add:
+            self._conn.merge(user)
+        self._conn.commit()
+
+        delete = list(users_in_directory - users_in_path)
+        if delete:
+            self._conn.query(DirectorySQL).filter(
+                DirectorySQL.user_id.in_(delete)).delete(synchronize_session=False)
+
+        self._conn.commit()
+
+    # CACHE
+
     def add_cache(self, user):
         '''
         Add a user to the cache.
         '''
-        self._conn.merge(_transform_cache(user))
+        self._conn.merge(_transform_user(user, kind=CACHE))
         self._conn.commit()
 
     def get_cache(self, user_identifiers):
@@ -858,7 +840,7 @@ class Directory:
         )
 
 
-# GLOBAL - All User instances share one.
+# GLOBALS
 _CONFIG = _make_config()
 _API = _make_api()
 _DIRECTORY = Directory()
