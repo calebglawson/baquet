@@ -420,7 +420,7 @@ class User:
         '''
         Get the tweets matching a particular tag.
         '''
-        return paginate(
+        results = paginate(
             self._conn.query(TimelineSQL).join(
                 TimelineTagsSQL,
                 TimelineSQL.tweet_id == TimelineTagsSQL.tweet_id
@@ -430,6 +430,8 @@ class User:
             page=page,
             page_size=page_size
         )
+
+        return _serialize_paginated_entities(results)
 
     def remove_note_timeline(self, tweet_id, note_id):
         '''
@@ -518,7 +520,7 @@ class User:
         '''
         Get the tweets matching a particular tag.
         '''
-        return paginate(
+        results = paginate(
             self._conn.query(FavoritesSQL).join(
                 FavoritesTagsSQL, FavoritesSQL.tweet_id == FavoritesTagsSQL.tweet_id
             ).filter(
@@ -527,6 +529,8 @@ class User:
             page=page,
             page_size=page_size
         )
+
+        return _serialize_paginated_entities(results)
 
     def get_notes_favorite(self, tweet_id):
         '''
