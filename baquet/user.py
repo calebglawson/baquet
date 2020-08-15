@@ -562,7 +562,7 @@ class User:
         Delete a tag from a tweet.
         '''
         tag_id = self._conn.query(FavoritesTagsSQL).filter(
-            FavoritesTagsSQL.tag_id == tag_id and FavoritesSQL.tweet_id == tweet_id).first()
+            FavoritesTagsSQL.tag_id == tag_id and FavoritesTagsSQL.tweet_id == tweet_id).first()
         self._conn.delete(tag_id)
         self._conn.commit()
 
