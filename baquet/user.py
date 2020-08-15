@@ -373,7 +373,7 @@ class User:
         if self._cache_expired(TimelineSQL):
             self._fetch_timeline()
 
-        watchlist = _get_watchlist(watchlist, TIMELINE)
+        watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
         retweets_on_watchlist = self._conn.query(TimelineSQL).filter(
             TimelineSQL.retweet_user_id.in_(watchlist)).count()
         retweets = self._conn.query(
