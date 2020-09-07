@@ -279,7 +279,7 @@ class Watchlist:
         '''
         List the users that belong to a sublist.
         '''
-        self._conn.query(WatchlistSQL).join(UserSubListSQL).filter(
+        return self._conn.query(WatchlistSQL).join(UserSubListSQL).filter(
             UserSubListSQL.sublist_id == sublist_id
         ).all()
 
