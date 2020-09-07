@@ -179,3 +179,13 @@ class UserNotesSQL(BASE):
     note_id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     text = Column(String)
     created_at = Column(DateTime)
+
+
+class ListMembershipsSQL(BASE):
+    '''
+    Twitter lists this user belongs to.
+    '''
+    __tablename__ = 'list_memberships'
+    list_id = Column(String, primary_key=True)
+    name = Column(String)
+    last_updated = Column(DateTime)
