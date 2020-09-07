@@ -3,7 +3,8 @@ Model for the watchlist.
 Used to conveniently store keys for the information that we are interested in.
 '''
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 
 BASE = declarative_base()
@@ -43,6 +44,8 @@ class WatchlistSQL(BASE):
     verified = Column(Boolean, nullable=True)
     last_updated = Column(DateTime, nullable=True)
 
+    sublists = relationship("UserSubListSQL")
+
 
 class WatchwordsSQL(BASE):
     '''
@@ -50,3 +53,43 @@ class WatchwordsSQL(BASE):
     '''
     __tablename__ = 'watchwords'
     regex = Column(String, primary_key=True)
+
+
+class UserSubListSQL(BASE):
+    '''
+    User and sublist join.
+    '''
+    __tablename__ = 'user_sublists'
+    user_id = Column(String, ForeignKey('watchlist.user_id'), primary_key=True)
+    sublist_id = Column(Integer, ForeignKey(
+        'sublists.sublist_id'), primary_key=True)
+    locally_excluded = Column(Boolean, default=False)
+
+    sublist = relationship("SubListSQL")
+    user = relationship("WatchlistSQL")
+
+
+class SubListSQL(BASE):
+    '''
+    Store external lists.
+    '''
+    __tablename__ = 'sublists'
+    sublist_id = Column(Integer, primary_key=True)
+    sublist_type_id = Column(Integer, ForeignKey(
+        'sublist_types.sublist_type_id'))
+    name = Column(String)
+    external_id = Column(String, nullable=True)
+
+    sublist_type = relationship("SubListTypeSQL")
+    users = relationship("UserSubListSQL")
+
+
+class SubListTypeSQL(BASE):
+    '''
+    The type of list.
+    '''
+    __tablename__ = 'sublist_types'
+    sublist_type_id = Column(String, primary_key=True)
+    name = Column(String)
+
+    sublists = relationship("SubListSQL")

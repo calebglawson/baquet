@@ -37,6 +37,7 @@ from .models.user import (
     TimelineNotesSQL,
     FavoritesNotesSQL,
     UserNotesSQL,
+    ListMembershipsSQL,
 )
 from .models.directory import BASE as DIR_BASE, DirectorySQL, CacheSQL
 
@@ -198,10 +199,15 @@ def hydrate_user_identifiers(user_ids=None, screen_names=None):
     results = []
     user_identifiers = user_ids if user_ids else [
         s_n.lower() for s_n in screen_names]
+
+    if not user_ids:
+        screen_names = user_identifiers  # Refresh for cache lookup
+
     if not user_identifiers:
         return results
 
-    cache_results = _DIRECTORY.get_cache(user_identifiers)
+    cache_results = _DIRECTORY.get_cache(
+        user_ids=user_ids, screen_names=screen_names)
     cache_results = [_serialize_entities(user) for user in cache_results]
     cache_results_ids = [user.user_id for user in cache_results]
     cache_results_screen_names = [
@@ -288,6 +294,28 @@ class User:
         note = UserNotesSQL(text=text, created_at=datetime.utcnow())
         self._conn.add(note)
         self._conn.commit()
+
+    def _fetch_list_memberships(self):
+        list_memberships = _API.lists_memberships(user_id=self._user_id)
+
+        for membership in list_memberships:
+            list_membership = ListMembershipsSQL(
+                list_id=membership.id_str,
+                name=membership.full_name,
+                last_updated=datetime.utcnow()
+            )
+            self._conn.merge(list_membership)
+
+        self._conn.commit()
+
+    def get_list_memberships(self):
+        '''
+        Get the lists the twitter user is a member of.
+        '''
+        if self._cache_expired(ListMembershipsSQL):
+            self._fetch_list_memberships()
+
+        return self._conn.query(ListMembershipsSQL).all()
 
     def get_notes_user(self, page, page_size=20):
         '''
@@ -646,6 +674,7 @@ class User:
 
 # FOLLOWERS
 
+
     def _fetch_followers(self):
         # Delete to prevent stale entries.
         self._conn.query(FollowersSQL).delete()
@@ -829,19 +858,35 @@ class Directory:
         self._conn.merge(_transform_user(user, kind=CACHE))
         self._conn.commit()
 
-    def get_cache(self, user_identifiers):
+    def get_cache(self, user_ids, screen_names):
         '''
         Get users in the cache.
         '''
-        return self._conn.query(CacheSQL).filter(
-            and_(
-                or_(
-                    CacheSQL.user_id.in_(user_identifiers),
-                    func.lower(CacheSQL.screen_name).in_(user_identifiers)
-                ),
-                (CacheSQL.last_updated > self._expired_time)
-            )
-        )
+        shard_size = 900
+
+        if user_ids:
+            result = []
+            iterations = ceil(len(user_ids) / shard_size)
+            for iteration in range(iterations):
+                result = result + self._conn.query(CacheSQL).filter(
+                    and_(
+                        CacheSQL.user_id.in_(
+                            user_ids[iteration * shard_size:iteration * (shard_size + 1)]),
+                        (CacheSQL.last_updated > self._expired_time)
+                    )
+                ).all()
+        else:
+            result = []
+            iterations = ceil(len(screen_names) / shard_size)
+            for iteration in range(iterations):
+                result = result + self._conn.query(CacheSQL).filter(
+                    and_(
+                        CacheSQL.user_id.in_(
+                            screen_names[iteration * shard_size:iteration * (shard_size + 1)]),
+                        (CacheSQL.last_updated > self._expired_time)
+                    )
+                ).all()
+        return result
 
 
 # GLOBALS
