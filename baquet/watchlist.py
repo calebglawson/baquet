@@ -206,7 +206,7 @@ class Watchlist:
         '''
 
         assert (
-            not (twitter_id or (slug and owner_screen_name))
+            not (twitter_id and (slug and owner_screen_name))
         ), "Must supply twitter_id or both slug and owner_screen_name."
 
         # Get the twitter list data.
@@ -332,9 +332,16 @@ class Watchlist:
         Remove a sublist from the watchlist.
         Removes the sublist and users that belong exclusively to this list.
         '''
+        if not sublist_id == BaquetConstants.SUBLIST_TYPE_SELF:
+            # Cannot delete self.
+            self._conn.query(SubListSQL).filter(
+                SubListSQL.sublist_id == sublist_id
+            ).delete(synchronize_session='fetch')
+
         self._conn.query(UserSubListSQL).filter(
             UserSubListSQL.sublist_id == sublist_id
         ).delete(synchronize_session='fetch')
+
         # Delete any users that no longer belong to any sublists.
         orphans = self._conn.query(
             WatchlistSQL.user_id
@@ -346,9 +353,6 @@ class Watchlist:
 
         self._conn.query(WatchlistSQL).filter(
             WatchlistSQL.user_id.in_(orphans.subquery())
-        ).delete(synchronize_session='fetch')
-        self._conn.query(SubListSQL).filter(
-            SubListSQL.sublist_id == sublist_id
         ).delete(synchronize_session='fetch')
 
         self._conn.commit()
