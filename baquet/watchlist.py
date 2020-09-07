@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 import requests
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, or_, and_, not_
+from .constants import BaquetConstants
 from .models.watchlist import (
     BASE,
     WatchlistSQL,
@@ -101,16 +102,27 @@ class Watchlist:
         if not database.exists():
             database.parent.mkdir(parents=True, exist_ok=True)
             BASE.metadata.create_all(engine)
-
-            type_self = SubListTypeSQL(sublist_type_id=1, name="self")
+            type_self = SubListTypeSQL(
+                sublist_type_id=BaquetConstants.SUBLIST_TYPE_SELF,
+                name="self",
+            )
             session.add(type_self)
-            type_twitter = SubListTypeSQL(sublist_type_id=2, name="twitter")
+            type_twitter = SubListTypeSQL(
+                sublist_type_id=BaquetConstants.SUBLIST_TYPE_TWITTER,
+                name="twitter",
+            )
             session.add(type_twitter)
-            type_blockbot = SubListTypeSQL(sublist_type_id=3, name="blockbot")
+            type_blockbot = SubListTypeSQL(
+                sublist_type_id=BaquetConstants.SUBLIST_TYPES_BLOCKBOT,
+                name="blockbot",
+            )
             session.add(type_blockbot)
 
             sub_list_self = SubListSQL(
-                sublist_id=1, sublist_type_id=1, name="self")
+                sublist_id=BaquetConstants.SUBLIST_TYPE_SELF,
+                sublist_type_id=BaquetConstants.SUBLIST_TYPE_SELF,
+                name="self"
+            )
             session.add(sub_list_self)
 
             session.commit()
@@ -118,8 +130,7 @@ class Watchlist:
         return session
 
     # WATCHLIST
-
-    def add_watchlist(self, users, sublist_id=1):
+    def add_watchlist(self, users, sublist_id=BaquetConstants.SUBLIST_TYPE_SELF):
         '''
         Add one or more users to the watchlist.
         '''
@@ -134,12 +145,15 @@ class Watchlist:
             wl_sql = WatchlistSQL(user_id=users[i])
             self._conn.merge(wl_sql)
 
+            # Get the previous sublist if exists, to preserve local exclusions.
             prev_user_sublist = self._conn.query(UserSubListSQL).filter(
                 UserSubListSQL.user_id == users[i] and UserSubListSQL.sublist_id == sublist_id
             ).first()
             locally_excluded = prev_user_sublist.locally_excluded if prev_user_sublist else False
+
             user_sublist = UserSubListSQL(
-                user_id=users[i], sublist_id=sublist_id, locally_excluded=locally_excluded)
+                user_id=users[i], sublist_id=sublist_id, locally_excluded=locally_excluded
+            )
             self._conn.merge(user_sublist)
 
         self._conn.commit()
@@ -177,9 +191,14 @@ class Watchlist:
 
         url = f'https://www.theblockbot.com/show-blocks/{blockbot_id}.csv'
         blockbot_list = requests.get(
-            url).content.decode("utf-8").split("\n")[:-1]
-
-        self._import_list(blockbot_id, name, 3, blockbot_list)
+            url
+        ).content.decode("utf-8").split("\n")[:-1]
+        self._import_list(
+            blockbot_id,
+            name,
+            BaquetConstants.SUBLIST_TYPES_BLOCKBOT,
+            blockbot_list,
+        )
 
     def import_twitter_list(self, twitter_id=None, slug=None, owner_screen_name=None):
         '''
@@ -187,7 +206,7 @@ class Watchlist:
         '''
 
         assert (
-            not (twitter_id and (slug and owner_screen_name))
+            not (twitter_id or (slug and owner_screen_name))
         ), "Must supply twitter_id or both slug and owner_screen_name."
 
         # Get the twitter list data.
@@ -199,23 +218,29 @@ class Watchlist:
         stripped_twitter_list = [
             member.id_str for member in twitter_list.members()
         ]
-
-        self._import_list(twitter_list.id_str,
-                          twitter_list.full_name, 2, stripped_twitter_list)
+        self._import_list(
+            twitter_list.id_str,
+            twitter_list.full_name,
+            BaquetConstants.SUBLIST_TYPE_TWITTER,
+            stripped_twitter_list
+        )
 
     def _import_list(self, external_id, name, sublist_type_id, users):
         # See if list exists already.
         current_sublist = self._conn.query(SubListSQL).filter(
-            SubListSQL.external_id == external_id).first()
+            SubListSQL.external_id == external_id
+        ).first()
 
         if not current_sublist:
             # Create new list if not exists.
             current_sublist = SubListSQL(
-                sublist_type_id=sublist_type_id, name=name, external_id=external_id)
+                sublist_type_id=sublist_type_id, name=name, external_id=external_id
+            )
             self._conn.add(current_sublist)
             self._conn.commit()
             current_sublist = self._conn.query(SubListSQL).filter(
-                SubListSQL.external_id == external_id).first()
+                SubListSQL.external_id == external_id
+            ).first()
         else:
             # If list exists, delete all UserSubList links that are not locally excluded.
             self._conn.query(UserSubListSQL).filter(
@@ -234,11 +259,14 @@ class Watchlist:
             )
 
             self._conn.query(WatchlistSQL).filter(
-                WatchlistSQL.user_id.in_(orphans.subquery())).delete(synchronize_session='fetch')
+                WatchlistSQL.user_id.in_(orphans.subquery())
+            ).delete(synchronize_session='fetch')
 
         # Add users from the refreshe'd list.
-        self.add_watchlist(users,
-                           sublist_id=current_sublist.sublist_id)
+        self.add_watchlist(
+            users,
+            sublist_id=current_sublist.sublist_id
+        )
         self._conn.commit()
 
     def get_sublists(self):
@@ -251,30 +279,28 @@ class Watchlist:
         '''
         List the users that belong to a sublist.
         '''
-        # TODO: Refactor...
-        sublist = self._conn.query(SubListSQL).filter(
-            SubListSQL.sublist_id == sublist_id).first()
-
-        if sublist:
-            return sublist.users
-        else:
-            return []
+        self._conn.query(WatchlistSQL).join(UserSubListSQL).filter(
+            UserSubListSQL.sublist_id == sublist_id
+        ).all()
 
     def get_sublist_user_exclusions(self, sublist_id):
         '''
         List the users that are
         '''
-        # TODO: Refactor...
-        user_sublists = self._conn.query(UserSubListSQL).filter(
-            UserSubListSQL.sublist_id == sublist_id and UserSubListSQL.locally_excluded).all()
-        return [user_sublist.user for user_sublist in user_sublists]
+        return self._conn.query(WatchlistSQL).join(UserSubListSQL).filter(
+            and_(
+                UserSubListSQL.sublist_id == sublist_id,
+                UserSubListSQL.locally_excluded
+            )
+        ).all()
 
     def set_user_sublist_exclusion_status(self, user_id, sublist_id, excluded):
         '''
         Set the user's exclusion status.
         '''
         user_sublist = self._conn.query(UserSubListSQL).filter(
-            UserSubListSQL.user_id == user_id and UserSubListSQL.sublist_id == sublist_id).first()
+            UserSubListSQL.user_id == user_id and UserSubListSQL.sublist_id == sublist_id
+        ).first()
         user_sublist.locally_excluded = excluded
         self._conn.commit()
 
@@ -282,12 +308,12 @@ class Watchlist:
         '''
         Refresh a sublist's data. Locally excluded users are kept.
         '''
-        # TODO: Move the sublist types to constants.
         sublist = self._conn.query(SubListSQL).filter(
-            SubListSQL.sublist_id == sublist_id).first()
-        if sublist.sublist_type_id == 2:
+            SubListSQL.sublist_id == sublist_id
+        ).first()
+        if sublist.sublist_type_id == BaquetConstants.SUBLIST_TYPE_TWITTER:
             self.import_twitter_list(twitter_id=sublist.external_id)
-        elif sublist.sublist_type_id == 3:
+        elif sublist.sublist_type_id == BaquetConstants.SUBLIST_TYPES_BLOCKBOT:
             self.import_blockbot_list(
                 blockbot_id=sublist.external_id, name=sublist.name)
         else:
@@ -307,7 +333,8 @@ class Watchlist:
         Removes the sublist and users that belong exclusively to this list.
         '''
         self._conn.query(UserSubListSQL).filter(
-            UserSubListSQL.sublist_id == sublist_id).delete(synchronize_session='fetch')
+            UserSubListSQL.sublist_id == sublist_id
+        ).delete(synchronize_session='fetch')
         # Delete any users that no longer belong to any sublists.
         orphans = self._conn.query(
             WatchlistSQL.user_id
@@ -318,9 +345,11 @@ class Watchlist:
         )
 
         self._conn.query(WatchlistSQL).filter(
-            WatchlistSQL.user_id.in_(orphans.subquery())).delete(synchronize_session='fetch')
+            WatchlistSQL.user_id.in_(orphans.subquery())
+        ).delete(synchronize_session='fetch')
         self._conn.query(SubListSQL).filter(
-            SubListSQL.sublist_id == sublist_id).delete(synchronize_session='fetch')
+            SubListSQL.sublist_id == sublist_id
+        ).delete(synchronize_session='fetch')
 
         self._conn.commit()
 

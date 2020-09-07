@@ -15,15 +15,7 @@ from sqlalchemy import create_engine, and_, or_, desc
 from sqlalchemy.sql import func
 import tweepy
 
-from .constants import (
-    USER,
-    DIRECTORY,
-    CACHE,
-    WATCHLIST,
-    WATCHWORDS,
-    FAVORITE,
-    TIMELINE,
-)
+from .constants import BaquetConstants
 from .models.user import (
     BASE as USER_BASE,
     UsersSQL,
@@ -43,7 +35,7 @@ from .models.directory import BASE as DIR_BASE, DirectorySQL, CacheSQL
 
 
 def _make_config():
-    config = open(Path('./config.json'))
+    config = open(Path('./secret.json'))
     return json.load(config)
 
 
@@ -72,9 +64,9 @@ def _filter_for_watchwords(results, watchwords):
 def _get_watchlist(watchlist, kind):
     kind = kind.lower()
     if not isinstance(watchlist, list):
-        if kind == WATCHLIST:
+        if kind == BaquetConstants.WATCHLIST:
             return watchlist.get_watchlist()
-        elif kind == WATCHWORDS:
+        elif kind == BaquetConstants.WATCHWORDS:
             return watchlist.get_watchwords()
     return watchlist
 
@@ -82,11 +74,11 @@ def _get_watchlist(watchlist, kind):
 def _transform_user(user, kind):
     kind = kind.lower()
 
-    if kind == USER:
+    if kind == BaquetConstants.USER:
         target_class = UsersSQL
-    elif kind == DIRECTORY:
+    elif kind == BaquetConstants.DIRECTORY:
         target_class = DirectorySQL
-    elif kind == CACHE:
+    elif kind == BaquetConstants.CACHE:
         target_class = CacheSQL
     else:
         return None
@@ -130,7 +122,7 @@ def _transform_tweet(tweet, kind):
     kind = kind.lower()
     is_retweet = hasattr(tweet, "retweeted_status")
 
-    if kind == FAVORITE:
+    if kind == BaquetConstants.FAVORITE:
         return FavoritesSQL(
             created_at=tweet.created_at,
             entities=json.dumps(tweet.entities),
@@ -238,7 +230,7 @@ def hydrate_user_identifiers(user_ids=None, screen_names=None):
                 _DIRECTORY.add_cache(user)
 
             tweepy_results.extend(users)
-        tweepy_results = [_serialize_entities(_transform_user(result, kind=USER))
+        tweepy_results = [_serialize_entities(_transform_user(result, kind=BaquetConstants.USER))
                           for result in tweepy_results]
 
     results = cache_results + tweepy_results
@@ -283,7 +275,7 @@ class User:
 
         if user:
             _DIRECTORY.add_directory(user)
-            user_sql = _transform_user(user, kind=USER)
+            user_sql = _transform_user(user, kind=BaquetConstants.USER)
             self._conn.merge(user_sql)
             self._conn.commit()
 
@@ -296,6 +288,9 @@ class User:
         self._conn.commit()
 
     def _fetch_list_memberships(self):
+        # Clear all to remove deletions.
+        self._conn.query(ListMembershipsSQL).delete()
+
         list_memberships = _API.lists_memberships(user_id=self._user_id)
 
         for membership in list_memberships:
@@ -363,7 +358,8 @@ class User:
     def _fetch_timeline(self):
         for tweet in tweepy.Cursor(
                 _API.user_timeline, id=self._user_id, tweet_mode="extended").items(self._limit):
-            self._conn.merge(_transform_tweet(tweet, kind=TIMELINE))
+            self._conn.merge(_transform_tweet(
+                tweet, kind=BaquetConstants.TIMELINE))
 
         self._conn.commit()
 
@@ -401,7 +397,7 @@ class User:
         if self._cache_expired(TimelineSQL):
             self._fetch_timeline()
 
-        watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
+        watchlist = _get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
         retweets_on_watchlist = self._conn.query(TimelineSQL).filter(
             TimelineSQL.retweet_user_id.in_(watchlist)).count()
         retweets = self._conn.query(
@@ -426,7 +422,8 @@ class User:
             self._fetch_timeline()
 
         if watchlist:
-            watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
+            watchlist = _get_watchlist(
+                watchlist, kind=BaquetConstants.WATCHLIST)
             # When filtering, we are not interested in Tweets authored by the user.
             if self._user_id in watchlist:
                 watchlist.remove(self._user_id)
@@ -439,7 +436,8 @@ class User:
                                page=page, page_size=page_size)
 
         if watchwords:
-            watchwords = _get_watchlist(watchwords, kind=WATCHWORDS)
+            watchwords = _get_watchlist(
+                watchwords, kind=BaquetConstants.WATCHWORDS)
             results.items = _filter_for_watchwords(results.items, watchwords)
 
         return _serialize_paginated_entities(results)
@@ -485,7 +483,7 @@ class User:
         for favorite in tweepy.Cursor(
                 _API.favorites, id=self._user_id, tweet_mode="extended").items(self._limit):
             self._conn.merge(_transform_tweet(
-                favorite, kind=FAVORITE))
+                favorite, kind=BaquetConstants.FAVORITE))
 
         self._conn.commit()
 
@@ -515,7 +513,7 @@ class User:
         if self._cache_expired(FavoritesSQL):
             self._fetch_favorites()
 
-        watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
+        watchlist = _get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
         favorites_on_watchlist = self._conn.query(FavoritesSQL).filter(
             FavoritesSQL.user_id.in_(watchlist)).count()
         favorites = self._conn.query(FavoritesSQL).count()
@@ -531,7 +529,8 @@ class User:
             self._fetch_favorites()
 
         if watchlist:
-            watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
+            watchlist = _get_watchlist(
+                watchlist, kind=BaquetConstants.WATCHLIST)
             results = paginate(self._conn.query(FavoritesSQL).filter(FavoritesSQL.user_id.in_(
                 watchlist)).order_by(desc(FavoritesSQL.created_at)), page=page, page_size=page_size)
         else:
@@ -539,7 +538,8 @@ class User:
                 desc(FavoritesSQL.created_at)), page=page, page_size=page_size)
 
         if watchwords:
-            watchwords = _get_watchlist(watchwords, kind=WATCHWORDS)
+            watchwords = _get_watchlist(
+                watchwords, kind=BaquetConstants.WATCHWORDS)
             results.items = _filter_for_watchwords(results.items, watchwords)
 
         return _serialize_paginated_entities(results)
@@ -617,7 +617,8 @@ class User:
             self._fetch_friends()
 
         if watchlist:
-            watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
+            watchlist = _get_watchlist(
+                watchlist, kind=BaquetConstants.WATCHLIST)
             results = paginate(
                 self._conn.query(FriendsSQL).filter(
                     FriendsSQL.user_id.in_(watchlist)),
@@ -650,7 +651,7 @@ class User:
         if self._cache_expired(FriendsSQL):
             self._fetch_friends()
 
-        watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
+        watchlist = _get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
         friends_on_watchlist = self._conn.query(FriendsSQL).filter(
             FriendsSQL.user_id.in_(watchlist)).count()
 
@@ -664,7 +665,7 @@ class User:
         if self._cache_expired(FriendsSQL):
             self._fetch_friends()
 
-        watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
+        watchlist = _get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
         friends_on_watchlist = self._conn.query(FriendsSQL).filter(
             FriendsSQL.user_id.in_(watchlist)).count()
         friends = self._conn.query(FriendsSQL).count()
@@ -673,7 +674,6 @@ class User:
 
 
 # FOLLOWERS
-
 
     def _fetch_followers(self):
         # Delete to prevent stale entries.
@@ -696,7 +696,8 @@ class User:
             self._fetch_followers()
 
         if watchlist:
-            watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
+            watchlist = _get_watchlist(
+                watchlist, kind=BaquetConstants.WATCHLIST)
             results = paginate(self._conn.query(FollowersSQL).filter(
                 FollowersSQL.user_id.in_(watchlist)
             ), page=page, page_size=page_size)
@@ -727,7 +728,7 @@ class User:
         if self._cache_expired(FollowersSQL):
             self._fetch_followers()
 
-        watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
+        watchlist = _get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
         followers_on_watchlist = self._conn.query(FollowersSQL).filter(
             FollowersSQL.user_id.in_(watchlist)).count()
 
@@ -741,7 +742,7 @@ class User:
         if self._cache_expired(FollowersSQL):
             self._fetch_followers()
 
-        watchlist = _get_watchlist(watchlist, kind=WATCHLIST)
+        watchlist = _get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
         followers_on_watchlist = self._conn.query(FollowersSQL).filter(
             FollowersSQL.user_id.in_(watchlist)).count()
         followers = self._conn.query(FollowersSQL).count()
@@ -765,9 +766,9 @@ class User:
         '''
         Get the tags that apply to a given concept.
         '''
-        if kind == FAVORITE:
+        if kind == BaquetConstants.FAVORITE:
             query_class = FavoritesTagsSQL
-        elif kind == TIMELINE:
+        elif kind == BaquetConstants.TIMELINE:
             query_class = TimelineTagsSQL
         else:
             return None
@@ -805,7 +806,7 @@ class Directory:
         '''
         Add or update a user in the directory.
         '''
-        user = _transform_user(user, kind=DIRECTORY)
+        user = _transform_user(user, kind=BaquetConstants.DIRECTORY)
         self._conn.merge(user)
         self._conn.commit()
 
@@ -836,7 +837,7 @@ class Directory:
 
         add = list(users_in_path - users_in_directory)
         add = hydrate_user_identifiers(user_ids=add)
-        add = [_transform_user(u, kind=DIRECTORY) for u in add]
+        add = [_transform_user(u, kind=BaquetConstants.DIRECTORY) for u in add]
 
         for user in add:
             self._conn.merge(user)
@@ -855,37 +856,34 @@ class Directory:
         '''
         Add a user to the cache.
         '''
-        self._conn.merge(_transform_user(user, kind=CACHE))
+        self._conn.merge(_transform_user(user, kind=BaquetConstants.CACHE))
         self._conn.commit()
 
     def get_cache(self, user_ids, screen_names):
         '''
         Get users in the cache.
         '''
-        shard_size = 900
 
-        if user_ids:
-            result = []
-            iterations = ceil(len(user_ids) / shard_size)
-            for iteration in range(iterations):
-                result = result + self._conn.query(CacheSQL).filter(
-                    and_(
-                        CacheSQL.user_id.in_(
-                            user_ids[iteration * shard_size:iteration * (shard_size + 1)]),
-                        (CacheSQL.last_updated > self._expired_time)
-                    )
-                ).all()
-        else:
-            result = []
-            iterations = ceil(len(screen_names) / shard_size)
-            for iteration in range(iterations):
-                result = result + self._conn.query(CacheSQL).filter(
-                    and_(
-                        CacheSQL.user_id.in_(
-                            screen_names[iteration * shard_size:iteration * (shard_size + 1)]),
-                        (CacheSQL.last_updated > self._expired_time)
-                    )
-                ).all()
+        shard_size = BaquetConstants.SQLITE_SHARD_SIZE
+        result = []
+        iterations = ceil(len(user_ids) / shard_size)
+        for iteration in range(iterations):
+            primary_clause = CacheSQL.user_id.in_(
+                user_ids[
+                    iteration * shard_size:iteration * (shard_size + 1)
+                ]
+            ) if user_ids else CacheSQL.user_id.in_(
+                screen_names[
+                    iteration * shard_size:iteration * (shard_size + 1)
+                ]
+            )
+
+            result = result + self._conn.query(CacheSQL).filter(
+                and_(
+                    primary_clause,
+                    (CacheSQL.last_updated > self._expired_time)
+                )
+            ).all()
         return result
 
 
