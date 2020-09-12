@@ -29,8 +29,7 @@ def make_config():
     '''
     Load the config from a file.
     '''
-    # TODO: Move path to constants.
-    config = open(Path('./config.json'))
+    config = open(Path(BaquetConstants.PATH_CONFIG))
     return json.load(config)
 
 
@@ -39,13 +38,13 @@ def make_api(config):
     Make a Tweepy api object.
     '''
     auth = tweepy.OAuthHandler(
-        config.get('consumer_key'),
-        config.get('consumer_secret')
+        config.get(BaquetConstants.CONFIG_CONSUMER_KEY),
+        config.get(BaquetConstants.CONFIG_CONSUMER_SECRET)
     )
 
     auth.set_access_token(
-        config.get('access_token'),
-        config.get('access_token_secret')
+        config.get(BaquetConstants.CONFIG_ACCESS_TOKEN),
+        config.get(BaquetConstants.CONFIG_ACCESS_TOKEN_SECRET)
     )
 
     api = tweepy.API(
@@ -86,11 +85,11 @@ def get_watchlist(watchlist, kind):
 def _transform_user_id(user):
     user_id = None
 
-    if hasattr(user, "id_str"):
+    if hasattr(user, BaquetConstants.ATTR_ID_STR):
         user_id = user.id_str
-    elif hasattr(user, "id"):
+    elif hasattr(user, BaquetConstants.ATTR_ID):
         user_id = user.id
-    elif hasattr(user, "user_id"):
+    elif hasattr(user, BaquetConstants.ATTR_USER_ID):
         user_id = user.user_id
 
     return user_id
@@ -125,7 +124,7 @@ def transform_user(user, kind):
         ) else json.dumps(user.entities),
         favorites_count=user.favorites_count if hasattr(
             user,
-            "favorites_count"
+            BaquetConstants.ATTR_FAVORITES_COUNT
         ) else user.favourites_count,
         followers_count=user.followers_count,
         friends_count=user.friends_count,
@@ -140,11 +139,11 @@ def transform_user(user, kind):
         name=user.name,
         needs_phone_verification=user.needs_phone_verification if hasattr(
             user,
-            "needs_phone_verification"
+            BaquetConstants.ATTR_NEEDS_PHONE_VERIFICATION
         ) else None,
         profile_banner_url=user.profile_banner_url if hasattr(
             user,
-            "profile_banner_url"
+            BaquetConstants.ATTR_PROFILE_BANNER_URL
         ) else None,
         profile_image_url=user.profile_image_url,
         protected=user.protected,
@@ -152,7 +151,7 @@ def transform_user(user, kind):
         statuses_count=user.statuses_count,
         suspended=user.suspended if hasattr(
             user,
-            "suspended"
+            BaquetConstants.ATTR_SUSPENDED
         ) else None,
         url=user.url,
         verified=user.verified,
@@ -165,7 +164,7 @@ def transform_tweet(tweet, kind):
     Transforms an object to a SQLAlchemy model.
     '''
     kind = kind.lower()
-    is_retweet = hasattr(tweet, "retweeted_status")
+    is_retweet = hasattr(tweet, BaquetConstants.ATTR_RETWEETED_STATUS)
 
     if kind == BaquetConstants.FAVORITE:
         return FavoritesSQL(
@@ -176,7 +175,9 @@ def transform_tweet(tweet, kind):
             is_quote_status=tweet.is_quote_status,
             lang=tweet.lang,
             possibly_sensitive=tweet.possibly_sensitive if hasattr(
-                tweet, "possibly_sensitive") else False,
+                tweet,
+                BaquetConstants.ATTR_POSSIBLY_SENSITIVE
+            ) else False,
             retweet_count=tweet.retweet_count,
             source=tweet.source,
             source_url=tweet.source_url,
@@ -195,7 +196,9 @@ def transform_tweet(tweet, kind):
         is_quote_status=tweet.is_quote_status,
         lang=tweet.lang,
         possibly_sensitive=tweet.possibly_sensitive if hasattr(
-            tweet, "possibly_sensitive") else False,
+            tweet,
+            BaquetConstants.ATTR_POSSIBLY_SENSITIVE
+        ) else False,
         retweet_count=tweet.retweet_count,
         source=tweet.source,
         source_url=tweet.source_url,
@@ -217,7 +220,7 @@ def serialize_entities(item):
     '''
     # Without copying, there's some SQLAlchemy weirdness.
     item = copy(item)
-    if hasattr(item, "entities") and item.entities:
+    if hasattr(item, BaquetConstants.ATTR_ENTITIES) and item.entities:
         item.entities = json.loads(item.entities)
     return item
 

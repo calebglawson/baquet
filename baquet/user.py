@@ -308,11 +308,11 @@ class User:
         Get the tags on a timeline tweet.
         '''
         with self._session() as session:
-            # TODO: Revisit this
-            results = session.query(TimelineTagsSQL).filter(
+            result = session.query(TagsSQL).join(TimelineTagsSQL).filter(
                 TimelineTagsSQL.tweet_id == tweet_id
             ).all()
-        return [result.tag for result in results]
+            session.expunge_all()
+            return result
 
     def get_timeline(self, page, page_size=20, watchlist=None, watchwords=None):
         '''
@@ -465,12 +465,13 @@ class User:
                     page_size=page_size
                 )
 
-        if watchwords:
-            watchwords = get_watchlist(
-                watchwords, kind=BaquetConstants.WATCHWORDS)
-            results.items = filter_for_watchwords(results.items, watchwords)
+            if watchwords:
+                watchwords = get_watchlist(
+                    watchwords, kind=BaquetConstants.WATCHWORDS)
+                results.items = filter_for_watchwords(
+                    results.items, watchwords)
 
-        return serialize_paginated_entities(results)
+            return serialize_paginated_entities(results)
 
     def get_favorites_tagged(self, tag_id, page, page_size=20):
         '''
@@ -487,7 +488,7 @@ class User:
                 page_size=page_size
             )
 
-        return serialize_paginated_entities(results)
+            return serialize_paginated_entities(results)
 
     def get_notes_favorite(self, tweet_id):
         '''
@@ -503,12 +504,11 @@ class User:
         Get the tags on a favorited tweet.
         '''
         with self._session() as session:
-            results = session.query(FavoritesTagsSQL).filter(
+            results = session.query(TagsSQL).join(FavoritesTagsSQL).filter(
                 FavoritesTagsSQL.tweet_id == tweet_id
             ).all()
-
-        # TODO: Rewrite this
-        return [result.tag for result in results]
+            session.expunge_all()
+            return results
 
     def remove_note_favorite(self, tweet_id, note_id):
         '''
@@ -726,7 +726,7 @@ class User:
                 session.add(tag)
                 session.commit()
 
-        return tag.tag_id
+            return tag.tag_id
 
     def get_tags(self, kind):
         '''
