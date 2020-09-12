@@ -901,14 +901,30 @@ class Directory:
         database = self._path.joinpath(Path('./directory.db'))
         engine = create_engine(
             f'sqlite:///{database}', connect_args={"check_same_thread": False})
-        session = sessionmaker(
+        session_factory = sessionmaker(
             autocommit=False, autoflush=False, bind=engine)()
+
+        session = scoped_session(
+            session_factory
+        )
 
         if not database.exists():
             database.parent.mkdir(parents=True, exist_ok=True)
             DIR_BASE.metadata.create_all(engine)
 
         return session
+
+    @contextmanager
+    def _session(self):
+        session = self._conn()
+        try:
+            yield session
+            session.commit()
+        except:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     # DIRECTORY
 
@@ -917,48 +933,53 @@ class Directory:
         Add or update a user in the directory.
         '''
         user = _transform_user(user, kind=BaquetConstants.DIRECTORY)
-        self._conn.merge(user)
-        self._conn.commit()
+        with self._session() as session:
+            session.merge(user)
 
     def get_directory(self, page, page_size=20):
         '''
         Get users in the directory.
         '''
-        return _serialize_paginated_entities(
-            paginate(
-                self._conn.query(DirectorySQL).order_by(
-                    DirectorySQL.screen_name),
-                page=page,
-                page_size=page_size
+        with self._session() as session:
+            return _serialize_paginated_entities(
+                paginate(
+                    session.query(DirectorySQL).order_by(
+                        DirectorySQL.screen_name
+                    ),
+                    page=page,
+                    page_size=page_size
+                )
             )
-        )
 
     def scan_and_update_directory(self):
         '''
         Find the difference between the folder contents and the user directory
         and update accordingly. Potential to be inefficient.
         '''
-        users_in_path = set([int(fn.split('.')[0])
-                             for fn in listdir(self._path) if fn.split('.')[0].isnumeric()])
-        users_in_directory = set(
-            [u.user_id for u in self._conn.query(DirectorySQL).filter(
-                DirectorySQL.last_updated > self._expired_time
-            ).all()])
+        users_in_path = set(
+            [
+                int(fn.split('.')[0]) for fn in listdir(self._path) if fn.split('.')[0].isnumeric()
+            ]
+        )
+        with self._session() as session:
+            users_in_directory = set(
+                [u.user_id for u in session.query(DirectorySQL).filter(
+                    DirectorySQL.last_updated > self._expired_time
+                ).all()])
 
-        add = list(users_in_path - users_in_directory)
-        add = hydrate_user_identifiers(user_ids=add)
-        add = [_transform_user(u, kind=BaquetConstants.DIRECTORY) for u in add]
+            add = list(users_in_path - users_in_directory)
+            add = hydrate_user_identifiers(user_ids=add)
+            add = [_transform_user(u, kind=BaquetConstants.DIRECTORY)
+                   for u in add]
 
-        for user in add:
-            self._conn.merge(user)
-        self._conn.commit()
+            for user in add:
+                session.merge(user)
+            session.commit()
 
-        delete = list(users_in_directory - users_in_path)
-        if delete:
-            self._conn.query(DirectorySQL).filter(
-                DirectorySQL.user_id.in_(delete)).delete(synchronize_session=False)
-
-        self._conn.commit()
+            delete = list(users_in_directory - users_in_path)
+            if delete:
+                session.query(DirectorySQL).filter(
+                    DirectorySQL.user_id.in_(delete)).delete(synchronize_session=False)
 
     # CACHE
 
@@ -966,8 +987,8 @@ class Directory:
         '''
         Add a user to the cache.
         '''
-        self._conn.merge(_transform_user(user, kind=BaquetConstants.CACHE))
-        self._conn.commit()
+        with self._session() as session:
+            session.merge(_transform_user(user, kind=BaquetConstants.CACHE))
 
     def get_cache(self, user_ids, screen_names):
         '''
@@ -988,12 +1009,13 @@ class Directory:
                 ]
             )
 
-            result = result + self._conn.query(CacheSQL).filter(
-                and_(
-                    primary_clause,
-                    (CacheSQL.last_updated > self._expired_time)
-                )
-            ).all()
+            with self._session() as session:
+                result = result + session.query(CacheSQL).filter(
+                    and_(
+                        primary_clause,
+                        (CacheSQL.last_updated > self._expired_time)
+                    )
+                ).all()
         return result
 
 
