@@ -4,13 +4,14 @@ All of the operations needed to support fetching and filtering Twitter user info
 
 import re
 import json
+from contextlib import contextmanager
 from copy import copy
 from datetime import datetime, timedelta
 from math import ceil
 from os import listdir
 from pathlib import Path
 from sqlalchemy_pagination import paginate
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy import create_engine, and_, or_, desc
 from sqlalchemy.sql import func
 import tweepy
@@ -35,7 +36,7 @@ from .models.directory import BASE as DIR_BASE, DirectorySQL, CacheSQL
 
 
 def _make_config():
-    config = open(Path('./config.json'))
+    config = open(Path('./secret.json'))
     return json.load(config)
 
 
@@ -250,23 +251,44 @@ class User:
         self._conn = self._make_conn()
 
     def _cache_expired(self, table):
-        last_updated = self._conn.query(func.max(table.last_updated)).scalar()
+        connection = self._conn()
+        last_updated = connection.query(func.max(table.last_updated)).scalar()
         elapsed = datetime.utcnow() - last_updated if last_updated else None
-
+        connection.close()
         return not elapsed or elapsed.seconds > self._cache_expiry
 
     def _make_conn(self):
         database = Path(f'./users/{self._user_id}.db')
         engine = create_engine(
-            f'sqlite:///{database}', connect_args={"check_same_thread": False})
-        session = sessionmaker(
-            autocommit=False, autoflush=False, bind=engine)()
+            f'sqlite:///{database}',
+            connect_args={"check_same_thread": False}
+        )
+        session_factory = sessionmaker(
+            autocommit=False,
+            autoflush=False,
+            bind=engine
+        )
+        session = scoped_session(
+            session_factory
+        )
 
         if not database.exists():
             database.parent.mkdir(parents=True, exist_ok=True)
             USER_BASE.metadata.create_all(engine)
 
         return session
+
+    @contextmanager
+    def _session(self):
+        session = self._conn()
+        try:
+            yield session
+            session.commit()
+        except:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     # USER
 
@@ -276,32 +298,33 @@ class User:
         if user:
             _DIRECTORY.add_directory(user)
             user_sql = _transform_user(user, kind=BaquetConstants.USER)
-            self._conn.merge(user_sql)
-            self._conn.commit()
+
+            with self._session() as session:
+                session.merge(user_sql)
 
     def add_note_user(self, text):
         '''
         Add a note to the user.
         '''
         note = UserNotesSQL(text=text, created_at=datetime.utcnow())
-        self._conn.add(note)
-        self._conn.commit()
+
+        with self._session() as session:
+            session.add(note)
 
     def _fetch_list_memberships(self):
-        # Clear all to remove deletions.
-        self._conn.query(ListMembershipsSQL).delete()
+        with self._session() as session:
+            # Clear all to remove deletions
+            session.query(ListMembershipsSQL).delete()
 
-        list_memberships = _API.lists_memberships(user_id=self._user_id)
+            list_memberships = _API.lists_memberships(user_id=self._user_id)
 
-        for membership in list_memberships:
-            list_membership = ListMembershipsSQL(
-                list_id=membership.id_str,
-                name=membership.full_name,
-                last_updated=datetime.utcnow()
-            )
-            self._conn.merge(list_membership)
-
-        self._conn.commit()
+            for membership in list_memberships:
+                list_membership = ListMembershipsSQL(
+                    list_id=membership.id_str,
+                    name=membership.full_name,
+                    last_updated=datetime.utcnow()
+                )
+                session.merge(list_membership)
 
     def get_list_memberships(self):
         '''
@@ -310,18 +333,20 @@ class User:
         if self._cache_expired(ListMembershipsSQL):
             self._fetch_list_memberships()
 
-        return self._conn.query(ListMembershipsSQL).all()
+        with self._session() as session:
+            return session.query(ListMembershipsSQL).all()
 
     def get_notes_user(self, page, page_size=20):
         '''
         Get user notes.
         '''
-        return paginate(
-            self._conn.query(UserNotesSQL).order_by(
-                desc(UserNotesSQL.created_at)),
-            page=page,
-            page_size=page_size
-        )
+        with self._session() as session:
+            return paginate(
+                session.query(UserNotesSQL).order_by(
+                    desc(UserNotesSQL.created_at)),
+                page=page,
+                page_size=page_size
+            )
 
     def get_user(self):
         '''
@@ -331,10 +356,12 @@ class User:
         if self._cache_expired(UsersSQL):
             self._fetch_user()
 
-        return _serialize_entities(
-            self._conn.query(UsersSQL).filter(
-                UsersSQL.user_id == self._user_id).first()
-        )
+        with self._session() as session:
+            return _serialize_entities(
+                session.query(UsersSQL).filter(
+                    UsersSQL.user_id == self._user_id
+                ).first()
+            )
 
     def get_user_id(self):
         '''
@@ -346,31 +373,38 @@ class User:
         '''
         Remove note from user.
         '''
-        note = self._conn.query(UserNotesSQL).filter(
-            UserNotesSQL.note_id == note_id).first()
+        with self._session() as session:
+            note = session.query(UserNotesSQL).filter(
+                UserNotesSQL.note_id == note_id
+            ).first()
 
-        if note:
-            self._conn.delete(note)
-            self._conn.commit()
+            if note:
+                session.delete(note)
 
     # TIMELINE
 
     def _fetch_timeline(self):
-        for tweet in tweepy.Cursor(
-                _API.user_timeline, id=self._user_id, tweet_mode="extended").items(self._limit):
-            self._conn.merge(_transform_tweet(
-                tweet, kind=BaquetConstants.TIMELINE))
-
-        self._conn.commit()
+        with self._session() as session:
+            for tweet in tweepy.Cursor(
+                    _API.user_timeline,
+                    id=self._user_id,
+                    tweet_mode="extended"
+            ).items(self._limit):
+                session.merge(
+                    _transform_tweet(tweet, kind=BaquetConstants.TIMELINE)
+                )
 
     def add_note_timeline(self, tweet_id, text):
         '''
         Add a note to a tweet.
         '''
         note = TimelineNotesSQL(
-            tweet_id=tweet_id, text=text, created_at=datetime.utcnow())
-        self._conn.add(note)
-        self._conn.commit()
+            tweet_id=tweet_id,
+            text=text,
+            created_at=datetime.utcnow()
+        )
+        with self._session() as session:
+            session.add(note)
 
     def add_tag_timeline(self, tweet_id, tag_text):
         '''
@@ -379,16 +413,18 @@ class User:
         tag_id = self._get_tag_id(tag_text)
 
         timeline_tag = TimelineTagsSQL(tag_id=tag_id, tweet_id=tweet_id)
-        self._conn.merge(timeline_tag)
-        self._conn.commit()
+
+        with self._session() as session:
+            session.merge(timeline_tag)
 
     def get_notes_timeline(self, tweet_id):
         '''
         Get notes from a tweet.
         '''
-        return self._conn.query(
-            TimelineNotesSQL
-        ).filter(TimelineNotesSQL.tweet_id == tweet_id).all()
+        with self._session() as session:
+            return session.query(
+                TimelineNotesSQL
+            ).filter(TimelineNotesSQL.tweet_id == tweet_id).all()
 
     def get_retweet_watchlist_percent(self, watchlist):
         '''
@@ -398,10 +434,13 @@ class User:
             self._fetch_timeline()
 
         watchlist = _get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
-        retweets_on_watchlist = self._conn.query(TimelineSQL).filter(
-            TimelineSQL.retweet_user_id.in_(watchlist)).count()
-        retweets = self._conn.query(
-            TimelineSQL).filter(TimelineSQL.retweet_user_id is not None).count()
+        with self._session() as session:
+            retweets_on_watchlist = session.query(TimelineSQL).filter(
+                TimelineSQL.retweet_user_id.in_(watchlist)
+            ).count()
+            retweets = session.query(TimelineSQL).filter(
+                TimelineSQL.retweet_user_id is not None
+            ).count()
 
         return retweets_on_watchlist / retweets if retweets != 0 else 0
 
@@ -409,9 +448,12 @@ class User:
         '''
         Get the tags on a timeline tweet.
         '''
-        results = self._conn.query(TimelineTagsSQL).filter(
-            TimelineTagsSQL.tweet_id == tweet_id).all()
-        return [result.tag for result in results]
+        with self._session() as session:
+            # TODO: Revisit this
+            results = session.query(TimelineTagsSQL).filter(
+                TimelineTagsSQL.tweet_id == tweet_id
+            ).all()
+            return [result.tag for result in results]
 
     def get_timeline(self, page, page_size=20, watchlist=None, watchwords=None):
         '''
@@ -421,19 +463,25 @@ class User:
         if self._cache_expired(TimelineSQL):
             self._fetch_timeline()
 
-        if watchlist:
-            watchlist = _get_watchlist(
-                watchlist, kind=BaquetConstants.WATCHLIST)
-            # When filtering, we are not interested in Tweets authored by the user.
-            if self._user_id in watchlist:
-                watchlist.remove(self._user_id)
-            results = paginate(self._conn.query(TimelineSQL).filter(or_(
-                TimelineSQL.retweet_user_id.in_(watchlist),
-                TimelineSQL.user_id.in_(watchlist)
-            )).order_by(desc(TimelineSQL.created_at)), page=page, page_size=page_size)
-        else:
-            results = paginate(self._conn.query(TimelineSQL).order_by(desc(TimelineSQL.created_at)),
-                               page=page, page_size=page_size)
+        with self._session() as session:
+            if watchlist:
+                watchlist = _get_watchlist(
+                    watchlist, kind=BaquetConstants.WATCHLIST)
+                # When filtering, we are not interested in Tweets authored by the user.
+                if self._user_id in watchlist:
+                    watchlist.remove(self._user_id)
+                results = paginate(session.query(TimelineSQL).filter(or_(
+                    TimelineSQL.retweet_user_id.in_(watchlist),
+                    TimelineSQL.user_id.in_(watchlist)
+                )).order_by(desc(TimelineSQL.created_at)), page=page, page_size=page_size)
+            else:
+                results = paginate(
+                    session.query(TimelineSQL).order_by(
+                        desc(TimelineSQL.created_at)
+                    ),
+                    page=page,
+                    page_size=page_size
+                )
 
         if watchwords:
             watchwords = _get_watchlist(
@@ -446,46 +494,52 @@ class User:
         '''
         Get the tweets matching a particular tag.
         '''
-        results = paginate(
-            self._conn.query(TimelineSQL).join(
-                TimelineTagsSQL,
-                TimelineSQL.tweet_id == TimelineTagsSQL.tweet_id
-            ).filter(
-                TimelineTagsSQL.tag_id == tag_id
-            ).order_by(desc(TimelineSQL.created_at)),
-            page=page,
-            page_size=page_size
-        )
+        with self._session() as session:
+            results = paginate(
+                session.query(TimelineSQL).join(
+                    TimelineTagsSQL,
+                    TimelineSQL.tweet_id == TimelineTagsSQL.tweet_id
+                ).filter(
+                    TimelineTagsSQL.tag_id == tag_id
+                ).order_by(desc(TimelineSQL.created_at)),
+                page=page,
+                page_size=page_size
+            )
 
-        return _serialize_paginated_entities(results)
+            return _serialize_paginated_entities(results)
 
     def remove_note_timeline(self, tweet_id, note_id):
         '''
         Remove note from a tweet.
         '''
-        note = self._conn.query(TimelineNotesSQL).filter(
-            TimelineNotesSQL.tweet_id == tweet_id and TimelineNotesSQL.note_id == note_id).first()
-        self._conn.delete(note)
-        self._conn.commit()
+        with self._session() as session:
+            note = session.query(TimelineNotesSQL).filter(
+                TimelineNotesSQL.tweet_id == tweet_id and TimelineNotesSQL.note_id == note_id
+            ).first()
+            session.delete(note)
 
     def remove_tag_timeline(self, tweet_id, tag_id):
         '''
         Delete a tag from a tweet.
         '''
-        tag_id = self._conn.query(TimelineTagsSQL).filter(
-            TimelineTagsSQL.tag_id == tag_id and TimelineTagsSQL.tweet_id == tweet_id).first()
-        self._conn.delete(tag_id)
-        self._conn.commit()
+        with self._session() as session:
+            tag_id = session.query(TimelineTagsSQL).filter(
+                TimelineTagsSQL.tag_id == tag_id and TimelineTagsSQL.tweet_id == tweet_id
+            ).first()
+            session.delete(tag_id)
 
     # FAVORITES
 
     def _fetch_favorites(self):
-        for favorite in tweepy.Cursor(
-                _API.favorites, id=self._user_id, tweet_mode="extended").items(self._limit):
-            self._conn.merge(_transform_tweet(
-                favorite, kind=BaquetConstants.FAVORITE))
-
-        self._conn.commit()
+        with self._session() as session:
+            for favorite in tweepy.Cursor(
+                    _API.favorites, id=self._user_id, tweet_mode="extended").items(self._limit):
+                session.merge(
+                    _transform_tweet(
+                        favorite,
+                        kind=BaquetConstants.FAVORITE
+                    )
+                )
 
     def add_note_favorite(self, tweet_id, text):
         '''
@@ -493,8 +547,8 @@ class User:
         '''
         note = FavoritesNotesSQL(
             tweet_id=tweet_id, text=text, created_at=datetime.utcnow())
-        self._conn.add(note)
-        self._conn.commit()
+        with self._session() as session:
+            session.add(note)
 
     def add_tag_favorite(self, tweet_id, tag_text):
         '''
@@ -503,8 +557,8 @@ class User:
         tag_id = self._get_tag_id(tag_text)
 
         favorite_tag = FavoritesTagsSQL(tag_id=tag_id, tweet_id=tweet_id)
-        self._conn.merge(favorite_tag)
-        self._conn.commit()
+        with self._session() as session:
+            session.merge(favorite_tag)
 
     def get_favorite_watchlist_percent(self, watchlist):
         '''
@@ -514,9 +568,11 @@ class User:
             self._fetch_favorites()
 
         watchlist = _get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
-        favorites_on_watchlist = self._conn.query(FavoritesSQL).filter(
-            FavoritesSQL.user_id.in_(watchlist)).count()
-        favorites = self._conn.query(FavoritesSQL).count()
+        with self._session() as session:
+            favorites_on_watchlist = session.query(FavoritesSQL).filter(
+                FavoritesSQL.user_id.in_(watchlist)
+            ).count()
+            favorites = session.query(FavoritesSQL).count()
 
         return favorites_on_watchlist / favorites if favorites != 0 else 0
 
@@ -528,14 +584,27 @@ class User:
         if self._cache_expired(FavoritesSQL):
             self._fetch_favorites()
 
-        if watchlist:
-            watchlist = _get_watchlist(
-                watchlist, kind=BaquetConstants.WATCHLIST)
-            results = paginate(self._conn.query(FavoritesSQL).filter(FavoritesSQL.user_id.in_(
-                watchlist)).order_by(desc(FavoritesSQL.created_at)), page=page, page_size=page_size)
-        else:
-            results = paginate(self._conn.query(FavoritesSQL).order_by(
-                desc(FavoritesSQL.created_at)), page=page, page_size=page_size)
+        with self._session() as session:
+            if watchlist:
+                watchlist = _get_watchlist(
+                    watchlist,
+                    kind=BaquetConstants.WATCHLIST
+                )
+                results = paginate(
+                    session.query(FavoritesSQL).filter(
+                        FavoritesSQL.user_id.in_(watchlist)
+                    ).order_by(desc(FavoritesSQL.created_at)),
+                    page=page,
+                    page_size=page_size
+                )
+            else:
+                results = paginate(
+                    session.query(FavoritesSQL).order_by(
+                        desc(FavoritesSQL.created_at)
+                    ),
+                    page=page,
+                    page_size=page_size
+                )
 
         if watchwords:
             watchwords = _get_watchlist(
@@ -548,15 +617,16 @@ class User:
         '''
         Get the tweets matching a particular tag.
         '''
-        results = paginate(
-            self._conn.query(FavoritesSQL).join(
-                FavoritesTagsSQL, FavoritesSQL.tweet_id == FavoritesTagsSQL.tweet_id
-            ).filter(
-                FavoritesTagsSQL.tag_id == tag_id
-            ).order_by(desc(FavoritesSQL.created_at)),
-            page=page,
-            page_size=page_size
-        )
+        with self._session() as session:
+            results = paginate(
+                session.query(FavoritesSQL).join(
+                    FavoritesTagsSQL, FavoritesSQL.tweet_id == FavoritesTagsSQL.tweet_id
+                ).filter(
+                    FavoritesTagsSQL.tag_id == tag_id
+                ).order_by(desc(FavoritesSQL.created_at)),
+                page=page,
+                page_size=page_size
+            )
 
         return _serialize_paginated_entities(results)
 
@@ -564,49 +634,66 @@ class User:
         '''
         Get notes from a tweet.
         '''
-        return self._conn.query(
-            FavoritesNotesSQL
-        ).filter(FavoritesNotesSQL.tweet_id == tweet_id).all()
+        with self._session() as session:
+            return session.query(
+                FavoritesNotesSQL
+            ).filter(FavoritesNotesSQL.tweet_id == tweet_id).all()
 
     def get_tags_favorite(self, tweet_id):
         '''
         Get the tags on a favorited tweet.
         '''
-        results = self._conn.query(FavoritesTagsSQL).filter(
-            FavoritesTagsSQL.tweet_id == tweet_id).all()
+        with self._session() as session:
+            results = session.query(FavoritesTagsSQL).filter(
+                FavoritesTagsSQL.tweet_id == tweet_id
+            ).all()
+
+        # TODO: Rewrite this
         return [result.tag for result in results]
 
     def remove_note_favorite(self, tweet_id, note_id):
         '''
         Remove note from a tweet.
         '''
-        note = self._conn.query(FavoritesNotesSQL).filter(
-            FavoritesNotesSQL.tweet_id == tweet_id and FavoritesNotesSQL.note_id == note_id).first()
-        self._conn.delete(note)
-        self._conn.commit()
+        with self._session() as session:
+            note = session.query(FavoritesNotesSQL).filter(
+                and_(
+                    FavoritesNotesSQL.tweet_id == tweet_id,
+                    FavoritesNotesSQL.note_id == note_id
+                )
+            ).first()
+            session.delete(note)
 
     def remove_tag_favorite(self, tweet_id, tag_id):
         '''
         Delete a tag from a tweet.
         '''
-        tag_id = self._conn.query(FavoritesTagsSQL).filter(
-            FavoritesTagsSQL.tag_id == tag_id and FavoritesTagsSQL.tweet_id == tweet_id).first()
-        self._conn.delete(tag_id)
-        self._conn.commit()
+        with self._session() as session:
+            tag_id = session.query(FavoritesTagsSQL).filter(
+                and_(
+                    FavoritesTagsSQL.tag_id == tag_id,
+                    FavoritesTagsSQL.tweet_id == tweet_id
+                )
+            ).first()
+            session.delete(tag_id)
 
     # FRIENDS
 
     def _fetch_friends(self):
         # Delete to prevent stale entries.
-        self._conn.query(FriendsSQL).delete()
+        with self._session() as session:
+            session.query(FriendsSQL).delete()
 
-        friends = []
-        for friend_id in tweepy.Cursor(_API.friends_ids, id=self._user_id).items():
-            self._conn.merge(FriendsSQL(
-                user_id=friend_id, last_updated=datetime.utcnow()))
+            friends = []
+            for friend_id in tweepy.Cursor(_API.friends_ids, id=self._user_id).items():
+                session.merge(
+                    FriendsSQL(
+                        user_id=friend_id,
+                        last_updated=datetime.utcnow()
+                    )
+                )
 
-        self._conn.bulk_save_objects(friends)
-        self._conn.commit()
+            session.bulk_save_objects(friends)
 
     def get_friends(self, page, page_size=10000, watchlist=None):
         '''
@@ -619,12 +706,14 @@ class User:
         if watchlist:
             watchlist = _get_watchlist(
                 watchlist, kind=BaquetConstants.WATCHLIST)
-            results = paginate(
-                self._conn.query(FriendsSQL).filter(
-                    FriendsSQL.user_id.in_(watchlist)),
-                page=page,
-                page_size=page_size
-            )
+            with self._session() as session:
+                results = paginate(
+                    session.query(FriendsSQL).filter(
+                        FriendsSQL.user_id.in_(watchlist)
+                    ),
+                    page=page,
+                    page_size=page_size
+                )
             if results.items:
                 hydrated_results = hydrate_user_identifiers(
                     user_ids=[result.user_id for result in results.items])
@@ -641,7 +730,8 @@ class User:
 
             return results
 
-        return paginate(self._conn.query(FriendsSQL), page=page, page_size=page_size)
+        with self._session() as session:
+            return paginate(session.query(FriendsSQL), page=page, page_size=page_size)
 
     def get_friends_watchlist_completion(self, watchlist):
         '''
@@ -652,8 +742,10 @@ class User:
             self._fetch_friends()
 
         watchlist = _get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
-        friends_on_watchlist = self._conn.query(FriendsSQL).filter(
-            FriendsSQL.user_id.in_(watchlist)).count()
+        with self._session() as session:
+            friends_on_watchlist = session.query(FriendsSQL).filter(
+                FriendsSQL.user_id.in_(watchlist)
+            ).count()
 
         return (friends_on_watchlist / len(watchlist)
                 if watchlist else 0)
@@ -666,9 +758,11 @@ class User:
             self._fetch_friends()
 
         watchlist = _get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
-        friends_on_watchlist = self._conn.query(FriendsSQL).filter(
-            FriendsSQL.user_id.in_(watchlist)).count()
-        friends = self._conn.query(FriendsSQL).count()
+        with self._session() as session:
+            friends_on_watchlist = session.query(FriendsSQL).filter(
+                FriendsSQL.user_id.in_(watchlist)
+            ).count()
+            friends = session.query(FriendsSQL).count()
 
         return friends_on_watchlist / friends if friends != 0 else 0
 
@@ -676,16 +770,20 @@ class User:
 # FOLLOWERS
 
     def _fetch_followers(self):
-        # Delete to prevent stale entries.
-        self._conn.query(FollowersSQL).delete()
+        with self._session() as session:
+            # Delete to prevent stale entries.
+            session.query(FollowersSQL).delete()
 
-        followers = []
-        for follower_id in tweepy.Cursor(_API.followers_ids, id=self._user_id).items():
-            followers.append(FollowersSQL(user_id=follower_id,
-                                          last_updated=datetime.utcnow()))
+            followers = []
+            for follower_id in tweepy.Cursor(_API.followers_ids, id=self._user_id).items():
+                followers.append(
+                    FollowersSQL(
+                        user_id=follower_id,
+                        last_updated=datetime.utcnow()
+                    )
+                )
 
-        self._conn.bulk_save_objects(followers)
-        self._conn.commit()
+            session.bulk_save_objects(followers)
 
     def get_followers(self, page, page_size=10000, watchlist=None):
         '''
@@ -698,9 +796,14 @@ class User:
         if watchlist:
             watchlist = _get_watchlist(
                 watchlist, kind=BaquetConstants.WATCHLIST)
-            results = paginate(self._conn.query(FollowersSQL).filter(
-                FollowersSQL.user_id.in_(watchlist)
-            ), page=page, page_size=page_size)
+            with self._session() as session:
+                results = paginate(
+                    session.query(FollowersSQL).filter(
+                        FollowersSQL.user_id.in_(watchlist)
+                    ),
+                    page=page,
+                    page_size=page_size
+                )
 
             if results.items:
                 hydrated_results = hydrate_user_identifiers(
@@ -717,8 +820,8 @@ class User:
             results.items = new_items
 
             return results
-
-        return paginate(self._conn.query(FollowersSQL), page=page, page_size=page_size)
+        with self._session() as session:
+            return paginate(session.query(FollowersSQL), page=page, page_size=page_size)
 
     def get_followers_watchlist_completion(self, watchlist):
         '''
@@ -729,8 +832,10 @@ class User:
             self._fetch_followers()
 
         watchlist = _get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
-        followers_on_watchlist = self._conn.query(FollowersSQL).filter(
-            FollowersSQL.user_id.in_(watchlist)).count()
+        with self._session() as session:
+            followers_on_watchlist = session.query(FollowersSQL).filter(
+                FollowersSQL.user_id.in_(watchlist)
+            ).count()
 
         return (followers_on_watchlist / len(watchlist)
                 if watchlist else 0)
@@ -743,9 +848,11 @@ class User:
             self._fetch_followers()
 
         watchlist = _get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
-        followers_on_watchlist = self._conn.query(FollowersSQL).filter(
-            FollowersSQL.user_id.in_(watchlist)).count()
-        followers = self._conn.query(FollowersSQL).count()
+        with self._session() as session:
+            followers_on_watchlist = session.query(FollowersSQL).filter(
+                FollowersSQL.user_id.in_(watchlist)
+            ).count()
+            followers = session.query(FollowersSQL).count()
 
         return followers_on_watchlist / followers if followers != 0 else 0
 
@@ -753,12 +860,13 @@ class User:
 
     def _get_tag_id(self, text):
         text = text.strip()
-        tag = self._conn.query(TagsSQL).filter(TagsSQL.text == text).first()
+        with self._session() as session:
+            tag = session.query(TagsSQL).filter(TagsSQL.text == text).first()
 
-        if not tag:
-            tag = TagsSQL(text=text)
-            self._conn.add(tag)
-            self._conn.commit()
+            if not tag:
+                tag = TagsSQL(text=text)
+                session.add(tag)
+                session.commit()
 
         return tag.tag_id
 
@@ -772,9 +880,11 @@ class User:
             query_class = TimelineTagsSQL
         else:
             return None
-        return self._conn.query(TagsSQL).join(
-            query_class, query_class.tag_id == TagsSQL.tag_id
-        ).all()
+        with self._session() as session:
+            return session.query(TagsSQL).join(
+                query_class,
+                query_class.tag_id == TagsSQL.tag_id
+            ).all()
 
 
 class Directory:
