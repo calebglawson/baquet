@@ -3,8 +3,6 @@ From this module, we control data in the watchlist.
 The watchlist houses a list of users and words of interest.
 '''
 
-import json
-from copy import copy
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -21,66 +19,11 @@ from .models.watchlist import (
     SubListTypeSQL,
     UserSubListSQL,
 )
+from .helpers import (
+    serialize_entities,
+    transform_user
+)
 from .user import hydrate_user_identifiers, _API
-
-
-def _serialize_entities(item):
-    # Without copying, there's some SQLAlchemy weirdness.
-    item = copy(item)
-    if hasattr(item, "entities") and item.entities:
-        item.entities = json.loads(item.entities)
-    return item
-
-
-def _transform_user_id(user):
-    user_id = None
-
-    if hasattr(user, "id_str"):
-        user_id = user.id_str
-    elif hasattr(user, "id"):
-        user_id = user.id
-    elif hasattr(user, "user_id"):
-        user_id = user.user_id
-
-    return user_id
-
-
-def _transform_user(user):
-    return WatchlistSQL(
-        contributors_enabled=user.contributors_enabled,
-        created_at=user.created_at,
-        default_profile=user.default_profile,
-        default_profile_image=user.default_profile_image,
-        description=user.description,
-        entities=user.entities if isinstance(user.entities,
-                                             str) else json.dumps(user.entities),
-        favorites_count=user.favorites_count if hasattr(
-            user, "favorites_count") else user.favourites_count,
-        followers_count=user.followers_count,
-        friends_count=user.friends_count,
-        geo_enabled=user.geo_enabled,
-        has_extended_profile=user.has_extended_profile,
-        user_id=_transform_user_id(user),
-        is_translation_enabled=user.is_translation_enabled,
-        is_translator=user.is_translator,
-        lang=user.lang,
-        listed_count=user.listed_count,
-        location=user.location,
-        name=user.name,
-        needs_phone_verification=user.needs_phone_verification if hasattr(
-            user, "needs_phone_verification") else None,
-        profile_banner_url=user.profile_banner_url if hasattr(
-            user, "profile_banner_url") else None,
-        profile_image_url=user.profile_image_url,
-        protected=user.protected,
-        screen_name=user.screen_name,
-        statuses_count=user.statuses_count,
-        suspended=user.suspended if hasattr(
-            user, "suspended") else None,
-        url=user.url,
-        verified=user.verified,
-        last_updated=datetime.utcnow(),
-    )
 
 
 class Watchlist:
@@ -212,7 +155,7 @@ class Watchlist:
         Get watchlist users.
         '''
         with self._session() as session:
-            return [_serialize_entities(result) for result in session.query(WatchlistSQL).all()]
+            return [serialize_entities(result) for result in session.query(WatchlistSQL).all()]
 
     def import_blockbot_list(self, blockbot_id, name):
         '''
@@ -408,7 +351,7 @@ class Watchlist:
                 refresh = hydrate_user_identifiers(user_ids=refresh)
 
             for user in refresh:
-                session.merge(_transform_user(user))
+                session.merge(transform_user(user, BaquetConstants.WATCHLIST))
 
     def remove_watchlist(self, user):
         '''
@@ -433,9 +376,8 @@ class Watchlist:
         '''
         Get the watchwords as a list.
         '''
-        # TODO: Rewrite this
         with self._session() as session:
-            return [regex.regex for regex in session.query(WatchwordsSQL).all()]
+            return session.query(WatchwordsSQL.regex).all()
 
     def get_watchwords_count(self):
         '''
