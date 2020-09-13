@@ -42,7 +42,12 @@ from .models.user import (
     ListMembershipsSQL,
     TempJoinSQL as UserTempJoinSQL,
 )
-from .models.directory import BASE as DIR_BASE, DirectorySQL, CacheSQL, TempJoinSQL as DirTempJoinSQL
+from .models.directory import (
+    BASE as DIR_BASE,
+    DirectorySQL,
+    CacheSQL,
+    TempJoinSQL as DirTempJoinSQL
+)
 
 
 def hydrate_user_identifiers(user_ids=None, screen_names=None):
@@ -332,7 +337,7 @@ class User:
                 )
             ).count()
             retweets = session.query(TimelineSQL).filter(
-                TimelineSQL.retweet_user_id != None
+                TimelineSQL.retweet_user_id != None  # pylint: disable=singleton-comparison
             ).count()
 
         self._remove_temp_join(join_id)
