@@ -92,7 +92,6 @@ class Watchlist:
         session = self._conn()
         try:
             yield session
-            session.commit()
         except:
             session.rollback()
             raise
@@ -128,6 +127,7 @@ class Watchlist:
                     user_id=users[i], sublist_id=sublist_id, locally_excluded=locally_excluded
                 )
                 session.merge(user_sublist)
+            session.commit()
 
     def clear_watchlist(self):
         '''
@@ -135,6 +135,7 @@ class Watchlist:
         '''
         with self._session() as session:
             session.query(WatchlistSQL).delete()
+            session.commit()
 
     def get_watchlist(self):
         '''
@@ -241,6 +242,7 @@ class Watchlist:
                 users,
                 sublist_id=current_sublist.sublist_id
             )
+            session.commit()
 
     def get_sublists(self):
         '''
@@ -279,6 +281,7 @@ class Watchlist:
                 UserSubListSQL.user_id == user_id and UserSubListSQL.sublist_id == sublist_id
             ).first()
             user_sublist.locally_excluded = excluded
+            session.commit()
 
     def refresh_sublist(self, sublist_id):
         '''
@@ -292,7 +295,9 @@ class Watchlist:
             self.import_twitter_list(twitter_id=sublist.external_id)
         elif sublist.sublist_type_id == BaquetConstants.SUBLIST_TYPES_BLOCKBOT:
             self.import_blockbot_list(
-                blockbot_id=sublist.external_id, name=sublist.name)
+                blockbot_id=sublist.external_id,
+                name=sublist.name
+            )
         else:
             pass
 
@@ -334,6 +339,8 @@ class Watchlist:
                 WatchlistSQL.user_id.in_(orphans.subquery())
             ).delete(synchronize_session='fetch')
 
+            session.commit()
+
     def refresh_watchlist_user_data(self):
         '''
         Populate user data if missing or expired.
@@ -353,6 +360,8 @@ class Watchlist:
             for user in refresh:
                 session.merge(transform_user(user, BaquetConstants.WATCHLIST))
 
+            session.commit()
+
     def remove_watchlist(self, user):
         '''
         Remove a user from the watchlist.
@@ -361,6 +370,7 @@ class Watchlist:
             user = session.query(WatchlistSQL).filter(
                 WatchlistSQL.user_id == user.get_user_id()).first()
             session.delete(user)
+            session.commit()
 
     # WATCHWORDS
 
@@ -371,6 +381,7 @@ class Watchlist:
         regex = WatchwordsSQL(regex=regex)
         with self._session() as session:
             session.merge(regex)
+            session.commit()
 
     def get_watchwords(self):
         '''
@@ -394,3 +405,4 @@ class Watchlist:
             regex = session.query(WatchwordsSQL).filter(
                 WatchwordsSQL.regex == regex).first()
             session.delete(regex)
+            session.commit()

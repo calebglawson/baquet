@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from math import ceil
 from os import listdir
 from pathlib import Path
+
 from sqlalchemy_pagination import paginate
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy import create_engine, and_, or_, desc
@@ -50,7 +51,8 @@ def hydrate_user_identifiers(user_ids=None, screen_names=None):
     '''
     results = []
     user_identifiers = user_ids if user_ids else [
-        s_n.lower() for s_n in screen_names]
+        s_n.lower() for s_n in screen_names
+    ]
 
     if not user_ids:
         screen_names = user_identifiers  # Refresh for cache lookup
@@ -142,7 +144,6 @@ class User:
         session = self._conn()
         try:
             yield session
-            session.commit()
         except:
             session.rollback()
             raise
@@ -160,6 +161,7 @@ class User:
 
             with self._session() as session:
                 session.merge(user_sql)
+                session.commit()
 
     def add_note_user(self, text):
         '''
@@ -169,6 +171,7 @@ class User:
 
         with self._session() as session:
             session.add(note)
+            session.commit()
 
     def _fetch_list_memberships(self):
         with self._session() as session:
@@ -184,6 +187,7 @@ class User:
                     last_updated=datetime.utcnow()
                 )
                 session.merge(list_membership)
+            session.commit()
 
     def get_list_memberships(self):
         '''
@@ -239,6 +243,7 @@ class User:
 
             if note:
                 session.delete(note)
+                session.commit()
 
     # TIMELINE
 
@@ -252,6 +257,7 @@ class User:
                 session.merge(
                     transform_tweet(tweet, kind=BaquetConstants.TIMELINE)
                 )
+                session.commit()
 
     def add_note_timeline(self, tweet_id, text):
         '''
@@ -264,6 +270,7 @@ class User:
         )
         with self._session() as session:
             session.add(note)
+            session.commit()
 
     def add_tag_timeline(self, tweet_id, tag_text):
         '''
@@ -275,6 +282,7 @@ class User:
 
         with self._session() as session:
             session.merge(timeline_tag)
+            session.commit()
 
     def get_notes_timeline(self, tweet_id):
         '''
@@ -308,11 +316,9 @@ class User:
         Get the tags on a timeline tweet.
         '''
         with self._session() as session:
-            result = session.query(TagsSQL).join(TimelineTagsSQL).filter(
+            return session.query(TagsSQL).join(TimelineTagsSQL).filter(
                 TimelineTagsSQL.tweet_id == tweet_id
             ).all()
-            session.expunge_all()
-            return result
 
     def get_timeline(self, page, page_size=20, watchlist=None, watchwords=None):
         '''
@@ -365,7 +371,7 @@ class User:
                 page_size=page_size
             )
 
-            return serialize_paginated_entities(results)
+        return serialize_paginated_entities(results)
 
     def remove_note_timeline(self, tweet_id, note_id):
         '''
@@ -376,6 +382,7 @@ class User:
                 TimelineNotesSQL.tweet_id == tweet_id and TimelineNotesSQL.note_id == note_id
             ).first()
             session.delete(note)
+            session.commit()
 
     def remove_tag_timeline(self, tweet_id, tag_id):
         '''
@@ -386,6 +393,7 @@ class User:
                 TimelineTagsSQL.tag_id == tag_id and TimelineTagsSQL.tweet_id == tweet_id
             ).first()
             session.delete(tag_id)
+            session.commit()
 
     # FAVORITES
 
@@ -399,6 +407,7 @@ class User:
                         kind=BaquetConstants.FAVORITE
                     )
                 )
+            session.commit()
 
     def add_note_favorite(self, tweet_id, text):
         '''
@@ -408,6 +417,7 @@ class User:
             tweet_id=tweet_id, text=text, created_at=datetime.utcnow())
         with self._session() as session:
             session.add(note)
+            session.commit()
 
     def add_tag_favorite(self, tweet_id, tag_text):
         '''
@@ -418,6 +428,7 @@ class User:
         favorite_tag = FavoritesTagsSQL(tag_id=tag_id, tweet_id=tweet_id)
         with self._session() as session:
             session.merge(favorite_tag)
+            session.commit()
 
     def get_favorite_watchlist_percent(self, watchlist):
         '''
@@ -465,13 +476,13 @@ class User:
                     page_size=page_size
                 )
 
-            if watchwords:
-                watchwords = get_watchlist(
-                    watchwords, kind=BaquetConstants.WATCHWORDS)
-                results.items = filter_for_watchwords(
-                    results.items, watchwords)
+        if watchwords:
+            watchwords = get_watchlist(
+                watchwords, kind=BaquetConstants.WATCHWORDS)
+            results.items = filter_for_watchwords(
+                results.items, watchwords)
 
-            return serialize_paginated_entities(results)
+        return serialize_paginated_entities(results)
 
     def get_favorites_tagged(self, tag_id, page, page_size=20):
         '''
@@ -488,7 +499,7 @@ class User:
                 page_size=page_size
             )
 
-            return serialize_paginated_entities(results)
+        return serialize_paginated_entities(results)
 
     def get_notes_favorite(self, tweet_id):
         '''
@@ -504,24 +515,22 @@ class User:
         Get the tags on a favorited tweet.
         '''
         with self._session() as session:
-            results = session.query(TagsSQL).join(FavoritesTagsSQL).filter(
+            return session.query(TagsSQL).join(FavoritesTagsSQL).filter(
                 FavoritesTagsSQL.tweet_id == tweet_id
             ).all()
-            session.expunge_all()
-            return results
 
     def remove_note_favorite(self, tweet_id, note_id):
         '''
         Remove note from a tweet.
         '''
         with self._session() as session:
-            note = session.query(FavoritesNotesSQL).filter(
+            session.query(FavoritesNotesSQL).filter(
                 and_(
                     FavoritesNotesSQL.tweet_id == tweet_id,
                     FavoritesNotesSQL.note_id == note_id
                 )
-            ).first()
-            session.delete(note)
+            ).delete(synchronize_session='fetch')
+            session.commit()
 
     def remove_tag_favorite(self, tweet_id, tag_id):
         '''
@@ -533,8 +542,8 @@ class User:
                     FavoritesTagsSQL.tag_id == tag_id,
                     FavoritesTagsSQL.tweet_id == tweet_id
                 )
-            ).first()
-            session.delete(tag_id)
+            ).delete(synchronize_session='fetch')
+            session.commit()
 
     # FRIENDS
 
@@ -553,6 +562,7 @@ class User:
                 )
 
             session.bulk_save_objects(friends)
+            session.commit()
 
     def get_friends(self, page, page_size=10000, watchlist=None):
         '''
@@ -642,6 +652,7 @@ class User:
                 )
 
             session.bulk_save_objects(followers)
+            session.commit()
 
     def get_followers(self, page, page_size=10000, watchlist=None):
         '''
@@ -777,7 +788,6 @@ class Directory:
         session = self._conn()
         try:
             yield session
-            session.commit()
         except:
             session.rollback()
             raise
@@ -793,6 +803,7 @@ class Directory:
         user = transform_user(user, kind=BaquetConstants.DIRECTORY)
         with self._session() as session:
             session.merge(user)
+            session.commit()
 
     def get_directory(self, page, page_size=20):
         '''
@@ -838,6 +849,7 @@ class Directory:
             if delete:
                 session.query(DirectorySQL).filter(
                     DirectorySQL.user_id.in_(delete)).delete(synchronize_session=False)
+            session.commit()
 
     # CACHE
 
@@ -847,6 +859,7 @@ class Directory:
         '''
         with self._session() as session:
             session.merge(transform_user(user, kind=BaquetConstants.CACHE))
+            session.commit()
 
     def get_cache(self, user_ids, screen_names):
         '''
