@@ -31,7 +31,7 @@ class BaquetConstants():
     CONFIG_ACCESS_TOKEN_SECRET = 'access_token_secret'
 
     # PATHS
-    PATH_CONFIG = './secret.json'
+    PATH_CONFIG = './config.json'
 
     # ATTRS
     ATTR_ID_STR = 'id_str'
