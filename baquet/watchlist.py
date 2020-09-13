@@ -99,6 +99,7 @@ class Watchlist:
             session.close()
 
     # WATCHLIST
+
     def add_watchlist(self, users, sublist_id=BaquetConstants.SUBLIST_TYPE_SELF):
         '''
         Add one or more users to the watchlist.
@@ -233,9 +234,9 @@ class Watchlist:
                     WatchlistSQL.sublists == None  # pylint: disable=singleton-comparison
                 )
 
-                session.query(WatchlistSQL).filter(
-                    WatchlistSQL.user_id.in_(orphans.subquery())
-                ).delete(synchronize_session='fetch')
+                for orphan in orphans:
+                    session.query(WatchlistSQL).filter(
+                        WatchlistSQL.user_id == orphan.user_id).delete(synchronize_session='fetch')
 
             # Add users from the refreshe'd list.
             self.add_watchlist(
@@ -306,7 +307,7 @@ class Watchlist:
         Refresh all sublist data.
         '''
         with self._session() as session:
-            sublists = session.query(UserSubListSQL.sublist_id).all()
+            sublists = session.query(SubListSQL.sublist_id).all()
         for sublist in sublists:
             self.refresh_sublist(sublist.sublist_id)
 
@@ -335,9 +336,10 @@ class Watchlist:
                 WatchlistSQL.sublists == None  # pylint: disable=singleton-comparison
             )
 
-            session.query(WatchlistSQL).filter(
-                WatchlistSQL.user_id.in_(orphans.subquery())
-            ).delete(synchronize_session='fetch')
+            for orphan in orphans:
+                session.query(WatchlistSQL).filter(
+                    WatchlistSQL.user_id == orphan.user_id
+                ).delete(synchronize_session='fetch')
 
             session.commit()
 
@@ -367,9 +369,10 @@ class Watchlist:
         Remove a user from the watchlist.
         '''
         with self._session() as session:
-            user = session.query(WatchlistSQL).filter(
-                WatchlistSQL.user_id == user.get_user_id()).first()
-            session.delete(user)
+            session.query(WatchlistSQL).filter(
+                WatchlistSQL.user_id == user.get_user_id()).delete(synchronize_session='fetch')
+            session.query(UserSubListSQL).filter(
+                UserSubListSQL.user_id == user.get_user_id()).delete(synchronize_session='fetch')
             session.commit()
 
     # WATCHWORDS

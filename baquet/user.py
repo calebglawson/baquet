@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from math import ceil
 from os import listdir
 from pathlib import Path
+import uuid
 
 from sqlalchemy_pagination import paginate
 from sqlalchemy.orm import sessionmaker, scoped_session
@@ -39,8 +40,9 @@ from .models.user import (
     FavoritesNotesSQL,
     UserNotesSQL,
     ListMembershipsSQL,
+    TempJoinSQL as UserTempJoinSQL,
 )
-from .models.directory import BASE as DIR_BASE, DirectorySQL, CacheSQL
+from .models.directory import BASE as DIR_BASE, DirectorySQL, CacheSQL, TempJoinSQL as DirTempJoinSQL
 
 
 def hydrate_user_identifiers(user_ids=None, screen_names=None):
@@ -151,6 +153,23 @@ class User:
             session.close()
 
     # USER
+
+    def _add_temp_join(self, join_data):
+        join_id = uuid.uuid4().hex
+        join = [UserTempJoinSQL(join_id=join_id, join_on=j) for j in join_data]
+
+        with self._session() as session:
+            session.bulk_save_objects(join)
+            session.commit()
+
+        return join_id
+
+    def _remove_temp_join(self, join_id):
+        with self._session() as session:
+            session.query(UserTempJoinSQL).filter(
+                UserTempJoinSQL.join_id == join_id
+            ).delete(synchronize_session='fetch')
+            session.commit()
 
     def _fetch_user(self):
         user = _API.get_user(user_id=self._user_id)
@@ -301,13 +320,22 @@ class User:
             self._fetch_timeline()
 
         watchlist = get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
+
+        join_id = self._add_temp_join(watchlist)
         with self._session() as session:
-            retweets_on_watchlist = session.query(TimelineSQL).filter(
-                TimelineSQL.retweet_user_id.in_(watchlist)
+
+            retweets_on_watchlist = session.query(TimelineSQL).join(
+                UserTempJoinSQL,
+                and_(
+                    TimelineSQL.retweet_user_id == UserTempJoinSQL.join_on,
+                    UserTempJoinSQL.join_id == join_id
+                )
             ).count()
             retweets = session.query(TimelineSQL).filter(
-                TimelineSQL.retweet_user_id is not None
+                TimelineSQL.retweet_user_id != None
             ).count()
+
+        self._remove_temp_join(join_id)
 
         return retweets_on_watchlist / retweets if retweets != 0 else 0
 
@@ -331,14 +359,30 @@ class User:
         with self._session() as session:
             if watchlist:
                 watchlist = get_watchlist(
-                    watchlist, kind=BaquetConstants.WATCHLIST)
+                    watchlist,
+                    kind=BaquetConstants.WATCHLIST
+                )
+
                 # When filtering, we are not interested in Tweets authored by the user.
                 if self._user_id in watchlist:
                     watchlist.remove(self._user_id)
-                results = paginate(session.query(TimelineSQL).filter(or_(
-                    TimelineSQL.retweet_user_id.in_(watchlist),
-                    TimelineSQL.user_id.in_(watchlist)
-                )).order_by(desc(TimelineSQL.created_at)), page=page, page_size=page_size)
+
+                join_id = self._add_temp_join(watchlist)
+
+                results = paginate(
+                    session.query(TimelineSQL).join(
+                        UserTempJoinSQL,
+                        and_(
+                            or_(
+                                TimelineSQL.retweet_user_id == UserTempJoinSQL.join_on,
+                                TimelineSQL.user_id == UserTempJoinSQL.join_on
+                            ),
+                            UserTempJoinSQL.join_id == join_id
+                        )
+                    ).order_by(desc(TimelineSQL.created_at)),
+                    page=page,
+                    page_size=page_size
+                )
             else:
                 results = paginate(
                     session.query(TimelineSQL).order_by(
@@ -348,12 +392,15 @@ class User:
                     page_size=page_size
                 )
 
-        if watchwords:
-            watchwords = get_watchlist(
-                watchwords, kind=BaquetConstants.WATCHWORDS)
-            results.items = filter_for_watchwords(results.items, watchwords)
+            if watchwords:
+                watchwords = get_watchlist(
+                    watchwords, kind=BaquetConstants.WATCHWORDS)
+                results.items = filter_for_watchwords(
+                    results.items, watchwords)
 
-        return serialize_paginated_entities(results)
+            results = serialize_paginated_entities(results)
+            self._remove_temp_join(join_id)
+            return results
 
     def get_timeline_tagged(self, tag_id, page, page_size=20):
         '''
@@ -438,11 +485,20 @@ class User:
             self._fetch_favorites()
 
         watchlist = get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
+
+        join_id = self._add_temp_join(watchlist)
         with self._session() as session:
-            favorites_on_watchlist = session.query(FavoritesSQL).filter(
-                FavoritesSQL.user_id.in_(watchlist)
+
+            favorites_on_watchlist = session.query(FavoritesSQL).join(
+                UserTempJoinSQL,
+                and_(
+                    FavoritesSQL.user_id == UserTempJoinSQL.join_on,
+                    UserTempJoinSQL.join_id == join_id
+                )
             ).count()
             favorites = session.query(FavoritesSQL).count()
+
+        self._remove_temp_join(join_id)
 
         return favorites_on_watchlist / favorites if favorites != 0 else 0
 
@@ -460,9 +516,16 @@ class User:
                     watchlist,
                     kind=BaquetConstants.WATCHLIST
                 )
+
+                join_id = self._add_temp_join(watchlist)
+
                 results = paginate(
-                    session.query(FavoritesSQL).filter(
-                        FavoritesSQL.user_id.in_(watchlist)
+                    session.query(FavoritesSQL).join(
+                        UserTempJoinSQL,
+                        and_(
+                            FavoritesSQL.user_id == UserTempJoinSQL.join_on,
+                            UserTempJoinSQL.join_id == join_id
+                        )
                     ).order_by(desc(FavoritesSQL.created_at)),
                     page=page,
                     page_size=page_size
@@ -476,13 +539,16 @@ class User:
                     page_size=page_size
                 )
 
-        if watchwords:
-            watchwords = get_watchlist(
-                watchwords, kind=BaquetConstants.WATCHWORDS)
-            results.items = filter_for_watchwords(
-                results.items, watchwords)
+            if watchwords:
+                watchwords = get_watchlist(
+                    watchwords, kind=BaquetConstants.WATCHWORDS)
+                results.items = filter_for_watchwords(
+                    results.items, watchwords)
 
-        return serialize_paginated_entities(results)
+            # This maneuver seems to be required for sqlalchemy...
+            results = serialize_paginated_entities(results)
+            self._remove_temp_join(join_id)
+            return results
 
     def get_favorites_tagged(self, tag_id, page, page_size=20):
         '''
@@ -575,14 +641,23 @@ class User:
         if watchlist:
             watchlist = get_watchlist(
                 watchlist, kind=BaquetConstants.WATCHLIST)
+            join_id = self._add_temp_join(watchlist)
             with self._session() as session:
+
                 results = paginate(
-                    session.query(FriendsSQL).filter(
-                        FriendsSQL.user_id.in_(watchlist)
+                    session.query(FriendsSQL).join(
+                        UserTempJoinSQL,
+                        and_(
+                            FriendsSQL.user_id == UserTempJoinSQL.join_on,
+                            UserTempJoinSQL.join_id == join_id
+                        )
                     ),
                     page=page,
                     page_size=page_size
                 )
+
+            self._remove_temp_join(join_id)
+
             if results.items:
                 hydrated_results = hydrate_user_identifiers(
                     user_ids=[result.user_id for result in results.items])
@@ -611,10 +686,19 @@ class User:
             self._fetch_friends()
 
         watchlist = get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
+        join_id = self._add_temp_join(watchlist)
+
         with self._session() as session:
-            friends_on_watchlist = session.query(FriendsSQL).filter(
-                FriendsSQL.user_id.in_(watchlist)
+
+            friends_on_watchlist = session.query(FriendsSQL).join(
+                UserTempJoinSQL,
+                and_(
+                    FriendsSQL.user_id == UserTempJoinSQL.join_on,
+                    UserTempJoinSQL.join_id == join_id
+                )
             ).count()
+
+        self._remove_temp_join(join_id)
 
         return (friends_on_watchlist / len(watchlist)
                 if watchlist else 0)
@@ -627,11 +711,20 @@ class User:
             self._fetch_friends()
 
         watchlist = get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
+        join_id = self._add_temp_join(watchlist)
+
         with self._session() as session:
-            friends_on_watchlist = session.query(FriendsSQL).filter(
-                FriendsSQL.user_id.in_(watchlist)
+
+            friends_on_watchlist = session.query(FriendsSQL).join(
+                UserTempJoinSQL,
+                and_(
+                    FriendsSQL.user_id == UserTempJoinSQL.join_on,
+                    UserTempJoinSQL.join_id == join_id
+                )
             ).count()
             friends = session.query(FriendsSQL).count()
+
+        self._remove_temp_join(join_id)
 
         return friends_on_watchlist / friends if friends != 0 else 0
 
@@ -665,14 +758,24 @@ class User:
         if watchlist:
             watchlist = get_watchlist(
                 watchlist, kind=BaquetConstants.WATCHLIST)
+
+            join_id = self._add_temp_join(watchlist)
+
             with self._session() as session:
+
                 results = paginate(
-                    session.query(FollowersSQL).filter(
-                        FollowersSQL.user_id.in_(watchlist)
+                    session.query(FollowersSQL).join(
+                        UserTempJoinSQL,
+                        and_(
+                            FollowersSQL.user_id == UserTempJoinSQL.join_on,
+                            UserTempJoinSQL.join_id == join_id
+                        )
                     ),
                     page=page,
                     page_size=page_size
                 )
+
+            self._remove_temp_join(join_id)
 
             if results.items:
                 hydrated_results = hydrate_user_identifiers(
@@ -701,10 +804,20 @@ class User:
             self._fetch_followers()
 
         watchlist = get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
+
+        join_id = self._add_temp_join(watchlist)
+
         with self._session() as session:
-            followers_on_watchlist = session.query(FollowersSQL).filter(
-                FollowersSQL.user_id.in_(watchlist)
+
+            followers_on_watchlist = session.query(FollowersSQL).join(
+                UserTempJoinSQL,
+                and_(
+                    FollowersSQL.user_id == UserTempJoinSQL.join_on,
+                    UserTempJoinSQL.join_id == join_id
+                )
             ).count()
+
+        self._remove_temp_join(join_id)
 
         return (followers_on_watchlist / len(watchlist)
                 if watchlist else 0)
@@ -717,11 +830,21 @@ class User:
             self._fetch_followers()
 
         watchlist = get_watchlist(watchlist, kind=BaquetConstants.WATCHLIST)
+
+        join_id = self._add_temp_join(watchlist)
+
         with self._session() as session:
-            followers_on_watchlist = session.query(FollowersSQL).filter(
-                FollowersSQL.user_id.in_(watchlist)
+
+            followers_on_watchlist = session.query(FollowersSQL).join(
+                UserTempJoinSQL,
+                and_(
+                    FollowersSQL.user_id == UserTempJoinSQL.join_on,
+                    UserTempJoinSQL.join_id == join_id
+                )
             ).count()
             followers = session.query(FollowersSQL).count()
+
+        self._remove_temp_join(join_id)
 
         return followers_on_watchlist / followers if followers != 0 else 0
 
@@ -771,7 +894,7 @@ class Directory:
         engine = create_engine(
             f'sqlite:///{database}', connect_args={"check_same_thread": False})
         session_factory = sessionmaker(
-            autocommit=False, autoflush=False, bind=engine)()
+            autocommit=False, autoflush=False, bind=engine)
 
         session = scoped_session(
             session_factory
@@ -795,6 +918,23 @@ class Directory:
             session.close()
 
     # DIRECTORY
+
+    def _add_temp_join(self, join_data):
+        join_id = uuid.uuid4().hex
+        join = [DirTempJoinSQL(join_id=join_id, join_on=j) for j in join_data]
+
+        with self._session() as session:
+            session.bulk_save_objects(join)
+            session.commit()
+
+        return join_id
+
+    def _remove_temp_join(self, join_id):
+        with self._session() as session:
+            session.query(DirTempJoinSQL).filter(
+                DirTempJoinSQL.join_id == join_id
+            ).delete(synchronize_session='fetch')
+            session.commit()
 
     def add_directory(self, user):
         '''
@@ -827,7 +967,7 @@ class Directory:
         '''
         users_in_path = set(
             [
-                int(fn.split('.')[0]) for fn in listdir(self._path) if fn.split('.')[0].isnumeric()
+                fn.split('.')[0] for fn in listdir(self._path) if fn.split('.')[0].isnumeric()
             ]
         )
         with self._session() as session:
@@ -837,19 +977,21 @@ class Directory:
                 ).all()])
 
             add = list(users_in_path - users_in_directory)
-            add = hydrate_user_identifiers(user_ids=add)
-            add = [transform_user(u, kind=BaquetConstants.DIRECTORY)
-                   for u in add]
+            if add:
+                add = hydrate_user_identifiers(user_ids=add)
+                add = [transform_user(u, kind=BaquetConstants.DIRECTORY)
+                       for u in add]
 
             for user in add:
                 session.merge(user)
             session.commit()
 
             delete = list(users_in_directory - users_in_path)
-            if delete:
-                session.query(DirectorySQL).filter(
-                    DirectorySQL.user_id.in_(delete)).delete(synchronize_session=False)
-            session.commit()
+            with self._session() as session:
+                for user in delete:
+                    session.query(DirectorySQL).filter(
+                        DirectorySQL.user_id == user).delete(synchronize_session='fetch')
+                session.commit()
 
     # CACHE
 
@@ -866,28 +1008,34 @@ class Directory:
         Get users in the cache.
         '''
 
-        shard_size = BaquetConstants.SQLITE_SHARD_SIZE
-        result = []
-        iterations = ceil(len(user_ids) / shard_size)
-        for iteration in range(iterations):
-            primary_clause = CacheSQL.user_id.in_(
-                user_ids[
-                    iteration * shard_size:iteration * (shard_size + 1)
-                ]
-            ) if user_ids else CacheSQL.user_id.in_(
-                screen_names[
-                    iteration * shard_size:iteration * (shard_size + 1)
-                ]
-            )
+        if user_ids:
+            user_id_join = self._add_temp_join(user_ids)
 
             with self._session() as session:
-                result = result + session.query(CacheSQL).filter(
+                results = session.query(CacheSQL).join(
+                    DirTempJoinSQL,
                     and_(
-                        primary_clause,
-                        (CacheSQL.last_updated > self._expired_time)
+                        CacheSQL.user_id == DirTempJoinSQL.join_on,
+                        DirTempJoinSQL.join_id == user_id_join
                     )
                 ).all()
-        return result
+
+            self._remove_temp_join(user_id_join)
+        else:
+            screen_name_join = self._add_temp_join(screen_names)
+
+            with self._session() as session:
+                results = session.query(CacheSQL).join(
+                    DirTempJoinSQL,
+                    and_(
+                        CacheSQL.screen_name == DirTempJoinSQL.join_on,
+                        DirTempJoinSQL.join_id == screen_name_join
+                    )
+                ).all()
+
+            self._remove_temp_join(screen_name_join)
+
+        return results
 
 
 # GLOBALS

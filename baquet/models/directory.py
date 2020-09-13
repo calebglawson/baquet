@@ -76,3 +76,12 @@ class CacheSQL(BASE):
     url = Column(String)
     verified = Column(Boolean)
     last_updated = Column(DateTime)
+
+
+class TempJoinSQL(BASE):
+    '''
+    Table to temporarily join data, rather than using in_().
+    '''
+    __tablename__ = 'temp_joins'
+    join_id = Column(String, primary_key=True)
+    join_on = Column(String, primary_key=True)
