@@ -21,9 +21,6 @@ class BaquetConstants():
     SUBLIST_TYPE_TWITTER = 2
     SUBLIST_TYPES_BLOCKBOT = 3
 
-    # SQLITE SHARD
-    SQLITE_SHARD_SIZE = 900
-
     # CONFIGS
     CONFIG_CONSUMER_KEY = 'consumer_key'
     CONFIG_CONSUMER_SECRET = 'consumer_secret'
@@ -31,7 +28,7 @@ class BaquetConstants():
     CONFIG_ACCESS_TOKEN_SECRET = 'access_token_secret'
 
     # PATHS
-    PATH_CONFIG = './config.json'
+    PATH_CONFIG = './secret.json'
 
     # ATTRS
     ATTR_ID_STR = 'id_str'
