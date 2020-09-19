@@ -370,9 +370,11 @@ class Watchlist:
         '''
         with self._session() as session:
             session.query(WatchlistSQL).filter(
-                WatchlistSQL.user_id == user.get_user_id()).delete(synchronize_session='fetch')
+                WatchlistSQL.user_id == user.get_user_id()
+            ).delete(synchronize_session='fetch')
             session.query(UserSubListSQL).filter(
-                UserSubListSQL.user_id == user.get_user_id()).delete(synchronize_session='fetch')
+                UserSubListSQL.user_id == user.get_user_id()
+            ).delete(synchronize_session='fetch')
             session.commit()
 
     # WATCHWORDS
@@ -391,7 +393,7 @@ class Watchlist:
         Get the watchwords as a list.
         '''
         with self._session() as session:
-            return session.query(WatchwordsSQL.regex).all()
+            return [ww.regex for ww in session.query(WatchwordsSQL.regex).all()]
 
     def get_watchwords_count(self):
         '''

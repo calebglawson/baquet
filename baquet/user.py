@@ -404,7 +404,8 @@ class User:
                     results.items, watchwords)
 
             results = serialize_paginated_entities(results)
-            self._remove_temp_join(join_id)
+            if watchlist:
+                self._remove_temp_join(join_id)
             return results
 
     def get_timeline_tagged(self, tag_id, page, page_size=20):
@@ -552,7 +553,8 @@ class User:
 
             # This maneuver seems to be required for sqlalchemy...
             results = serialize_paginated_entities(results)
-            self._remove_temp_join(join_id)
+            if watchlist:
+                self._remove_temp_join(join_id)
             return results
 
     def get_favorites_tagged(self, tag_id, page, page_size=20):
