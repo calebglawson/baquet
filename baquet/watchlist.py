@@ -23,7 +23,7 @@ from .helpers import (
     serialize_entities,
     transform_user
 )
-from .user import hydrate_user_identifiers, _API
+from .directory import hydrate_user_identifiers, _API
 
 
 class Watchlist:
