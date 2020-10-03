@@ -8,6 +8,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 import requests
+from sqlalchemy_pagination import paginate
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy import create_engine, or_, and_, not_
 from .constants import BaquetConstants
@@ -21,7 +22,8 @@ from .models.watchlist import (
 )
 from .helpers import (
     serialize_entities,
-    transform_user
+    serialize_paginated_entities,
+    transform_user,
 )
 from .directory import hydrate_user_identifiers, _API
 
@@ -140,7 +142,7 @@ class Watchlist:
 
     def get_watchlist(self):
         '''
-        Get the watchlist as a list.
+        Get the watchlist as a list of user ids.
         '''
         with self._session() as session:
             return [user.user_id for user in session.query(WatchlistSQL).all()]
@@ -152,12 +154,18 @@ class Watchlist:
         with self._session() as session:
             return session.query(WatchlistSQL).count()
 
-    def get_watchlist_users(self):
+    def get_watchlist_users(self, page, page_size=20):
         '''
-        Get watchlist users.
+        Get the watchlist as a list of Users with details.
         '''
         with self._session() as session:
-            return [serialize_entities(result) for result in session.query(WatchlistSQL).all()]
+            results = paginate(
+                session.query(WatchlistSQL),
+                page=page,
+                page_size=page_size,
+            )
+
+            return serialize_paginated_entities(results)
 
     def import_blockbot_list(self, blockbot_id, name):
         '''
@@ -252,14 +260,20 @@ class Watchlist:
         with self._session() as session:
             return session.query(SubListSQL).all()
 
-    def get_sublist_users(self, sublist_id):
+    def get_sublist_users(self, sublist_id, page, page_size=20):
         '''
         List the users that belong to a sublist.
         '''
         with self._session() as session:
-            return session.query(WatchlistSQL).join(UserSubListSQL).filter(
-                UserSubListSQL.sublist_id == sublist_id
-            ).all()
+            results = paginate(
+                session.query(WatchlistSQL).join(
+                    UserSubListSQL
+                ).filter(UserSubListSQL.sublist_id == sublist_id),
+                page=page,
+                page_size=page_size,
+            )
+
+            return serialize_paginated_entities(results)
 
     def get_sublist_user_exclusions(self, sublist_id):
         '''
