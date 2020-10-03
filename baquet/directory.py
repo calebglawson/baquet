@@ -1,3 +1,6 @@
+'''
+The centralized place to find all the users baquet knows about.
+'''
 
 from contextlib import contextmanager
 from datetime import datetime, timedelta
