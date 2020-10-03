@@ -573,7 +573,7 @@ class User:
             session.bulk_save_objects(friends)
             session.commit()
 
-    def get_friends(self, page, page_size=10000, watchlist=None):
+    def get_friends(self, page, page_size=100, watchlist=None):
         '''
         Get the users this user is following.
         If cache is expired, fetch them.
@@ -690,7 +690,7 @@ class User:
             session.bulk_save_objects(followers)
             session.commit()
 
-    def get_followers(self, page, page_size=10000, watchlist=None):
+    def get_followers(self, page, page_size=100, watchlist=None):
         '''
         Get the users followed by this user.
         If cache is expired, fetch them.
