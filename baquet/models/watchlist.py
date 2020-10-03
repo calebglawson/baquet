@@ -75,12 +75,14 @@ class SubListSQL(BASE):
     '''
     __tablename__ = 'sublists'
     sublist_id = Column(Integer, primary_key=True)
-    sublist_type_id = Column(Integer, ForeignKey(
-        'sublist_types.sublist_type_id'))
+    sublist_type_id = Column(
+        Integer,
+        ForeignKey('sublist_types.sublist_type_id')
+    )
     name = Column(String)
     external_id = Column(String, nullable=True)
 
-    sublist_type = relationship("SubListTypeSQL")
+    sublist_type = relationship("SubListTypeSQL", lazy='joined')
     users = relationship("UserSubListSQL")
 
 
