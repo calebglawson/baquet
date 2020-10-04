@@ -12,7 +12,7 @@ from sqlalchemy_pagination import paginate
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy import create_engine, or_, and_, not_
 from .constants import BaquetConstants
-from .models.watchlist import (
+from .sql.watchlist import (
     BASE,
     WatchlistSQL,
     WatchwordsSQL,
