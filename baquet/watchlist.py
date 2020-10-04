@@ -21,7 +21,6 @@ from .models.watchlist import (
     UserSubListSQL,
 )
 from .helpers import (
-    serialize_entities,
     serialize_paginated_entities,
     transform_user,
 )
