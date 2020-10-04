@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy import create_engine, and_
 
 from .constants import BaquetConstants
-from .models.directory import (
+from .sql.directory import (
     BASE as DIR_BASE,
     DirectorySQL,
     CacheSQL,

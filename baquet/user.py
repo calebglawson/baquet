@@ -13,6 +13,7 @@ from sqlalchemy import create_engine, and_, or_, desc
 from sqlalchemy.sql import func
 import tweepy
 
+from .models import load_model, UserModel, NotePaginatorModel, ListMembershipsModel, NoteModel
 from .directory import Directory, hydrate_user_identifiers
 from .constants import BaquetConstants
 from .helpers import(
@@ -25,7 +26,7 @@ from .helpers import(
     serialize_entities,
     serialize_paginated_entities
 )
-from .models.user import (
+from .sql.user import (
     BASE as USER_BASE,
     UsersSQL,
     TimelineSQL,
@@ -157,19 +158,22 @@ class User:
             self._fetch_list_memberships()
 
         with self._session() as session:
-            return session.query(ListMembershipsSQL).all()
+            results = session.query(ListMembershipsSQL).all()
+            return load_model(results, ListMembershipsModel, many=True)
 
     def get_notes_user(self, page, page_size=20):
         '''
         Get user notes.
         '''
         with self._session() as session:
-            return paginate(
+            results = paginate(
                 session.query(UserNotesSQL).order_by(
                     desc(UserNotesSQL.created_at)),
                 page=page,
                 page_size=page_size
             )
+
+            return load_model(results, NotePaginatorModel)
 
     def get_user(self):
         '''
@@ -180,11 +184,13 @@ class User:
             self._fetch_user()
 
         with self._session() as session:
-            return serialize_entities(
+            result = serialize_entities(
                 session.query(UsersSQL).filter(
                     UsersSQL.user_id == self._user_id
                 ).first()
             )
+
+            return load_model(result, UserModel)
 
     def get_user_id(self):
         '''
@@ -249,9 +255,11 @@ class User:
         Get notes from a tweet.
         '''
         with self._session() as session:
-            return session.query(
+            results = session.query(
                 TimelineNotesSQL
             ).filter(TimelineNotesSQL.tweet_id == tweet_id).all()
+
+            return load_model(results, NoteModel, many=True)
 
     def get_retweet_watchlist_percent(self, watchlist):
         '''
