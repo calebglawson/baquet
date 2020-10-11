@@ -114,3 +114,88 @@ class NotePaginatorModel(BasePaginatorModel):
     ):
         super().__init__(**kwargs)
         self.items = load_model(items, NoteModel, many=True)
+
+
+class TagModel:
+    '''
+    Tag model.
+    '''
+
+    def __init__(
+            self,
+            **kwargs,
+    ):
+        self.tag_id = kwargs.get("tag_id")
+        self.text = kwargs.get("text")
+
+
+class TweetModel:
+    '''
+    Tweet model.
+    '''
+
+    def __init__(
+            self,
+            **kwargs,
+    ):
+        self.created_at = kwargs.get("created_at")
+        self.entities = kwargs.get("entities")
+        self.favorite_count = kwargs.get("favorite_count")
+        self.tweet_id = kwargs.get("tweet_id")
+        self.is_quote_status = kwargs.get("is_quote_status")
+        self.lang = kwargs.get("lang")
+        self.possibly_sensitive = kwargs.get("possibly_sensitive")
+        self.retweet_count = kwargs.get("retweet_count")
+        self.source = kwargs.get("source")
+        self.source_url = kwargs.get("source_url")
+        self.text = kwargs.get("text")
+        self.retweet_user_id = kwargs.get("retweet_user_id")
+        self.retweet_screen_name = kwargs.get("retweet_screen_name")
+        self.retweet_name = kwargs.get("retweet_name")
+        self.user_id = kwargs.get("user_id")
+        self.screen_name = kwargs.get("screen_name")
+        self.name = kwargs.get("name")
+        self.last_updated = kwargs.get("last_updated")
+
+
+class TweetPaginatorModel:
+    '''
+    Tweet paginator model.
+    '''
+
+    def __init__(
+            self,
+            items,
+            **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.items = load_model(items, TweetModel, many=True)
+
+
+class BaseRelationshipModel:
+    '''
+    Either following or follower, base.
+    '''
+
+    def __init__(
+            self,
+            user,
+            **kwargs,
+    ):
+        self.user = load_model(user, UserModel) if user else None
+        self.user_id = kwargs.get("user_id")
+        self.last_updated = kwargs.get("last_updated")
+
+
+class RelationshipPaginatorModel(BasePaginatorModel):
+    '''
+    Relationship paginator.
+    '''
+
+    def __init__(
+            self,
+            items,
+            **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.items = load_model(items, BaseRelationshipModel, many=True)
