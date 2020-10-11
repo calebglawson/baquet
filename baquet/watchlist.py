@@ -12,7 +12,7 @@ from sqlalchemy_pagination import paginate
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy import create_engine, or_, and_, not_
 from .constants import BaquetConstants
-from .models.watchlist import (
+from .sql.watchlist import (
     BASE,
     WatchlistSQL,
     WatchwordsSQL,
@@ -23,6 +23,12 @@ from .models.watchlist import (
 from .helpers import (
     serialize_paginated_entities,
     transform_user,
+)
+from .models import (
+    load_model,
+    UserPaginatorModel,
+    SublistModel,
+    UserModel
 )
 from .directory import hydrate_user_identifiers, _API
 
@@ -164,7 +170,8 @@ class Watchlist:
                 page_size=page_size,
             )
 
-            return serialize_paginated_entities(results)
+            results = serialize_paginated_entities(results)
+            return load_model(results, UserPaginatorModel)
 
     def import_blockbot_list(self, blockbot_id, name):
         '''
@@ -257,7 +264,8 @@ class Watchlist:
         Get a list of all sublists.
         '''
         with self._session() as session:
-            return session.query(SubListSQL).all()
+            results = session.query(SubListSQL).all()
+            return load_model(results, SublistModel, many=True)
 
     def get_sublist_users(self, sublist_id, page, page_size=20):
         '''
@@ -272,19 +280,21 @@ class Watchlist:
                 page_size=page_size,
             )
 
-            return serialize_paginated_entities(results)
+            results = serialize_paginated_entities(results)
+            return load_model(results, UserPaginatorModel)
 
     def get_sublist_user_exclusions(self, sublist_id):
         '''
         List the users that are
         '''
         with self._session() as session:
-            return session.query(WatchlistSQL).join(UserSubListSQL).filter(
+            results = session.query(WatchlistSQL).join(UserSubListSQL).filter(
                 and_(
                     UserSubListSQL.sublist_id == sublist_id,
                     UserSubListSQL.locally_excluded
                 )
             ).all()
+            return load_model(results, UserModel, many=True)
 
     def set_user_sublist_exclusion_status(self, user_id, sublist_id, excluded):
         '''

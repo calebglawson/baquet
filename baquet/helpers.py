@@ -11,16 +11,16 @@ from copy import copy
 import tweepy
 
 from .constants import BaquetConstants
-from .models.user import (
+from .sql.user import (
     UsersSQL,
     TimelineSQL,
     FavoritesSQL,
 )
-from .models.directory import (
+from .sql.directory import (
     DirectorySQL,
     CacheSQL,
 )
-from .models.watchlist import (
+from .sql.watchlist import (
     WatchlistSQL
 )
 

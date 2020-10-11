@@ -13,6 +13,16 @@ from sqlalchemy import create_engine, and_, or_, desc
 from sqlalchemy.sql import func
 import tweepy
 
+from .models import (
+    load_model,
+    UserModel,
+    NotePaginatorModel,
+    ListMembershipsModel,
+    NoteModel,
+    TagModel,
+    TweetPaginatorModel,
+    RelationshipPaginatorModel
+)
 from .directory import Directory, hydrate_user_identifiers
 from .constants import BaquetConstants
 from .helpers import(
@@ -25,7 +35,7 @@ from .helpers import(
     serialize_entities,
     serialize_paginated_entities
 )
-from .models.user import (
+from .sql.user import (
     BASE as USER_BASE,
     UsersSQL,
     TimelineSQL,
@@ -157,19 +167,22 @@ class User:
             self._fetch_list_memberships()
 
         with self._session() as session:
-            return session.query(ListMembershipsSQL).all()
+            results = session.query(ListMembershipsSQL).all()
+            return load_model(results, ListMembershipsModel, many=True)
 
     def get_notes_user(self, page, page_size=20):
         '''
         Get user notes.
         '''
         with self._session() as session:
-            return paginate(
+            results = paginate(
                 session.query(UserNotesSQL).order_by(
                     desc(UserNotesSQL.created_at)),
                 page=page,
                 page_size=page_size
             )
+
+            return load_model(results, NotePaginatorModel)
 
     def get_user(self):
         '''
@@ -180,11 +193,13 @@ class User:
             self._fetch_user()
 
         with self._session() as session:
-            return serialize_entities(
+            result = serialize_entities(
                 session.query(UsersSQL).filter(
                     UsersSQL.user_id == self._user_id
                 ).first()
             )
+
+            return load_model(result, UserModel)
 
     def get_user_id(self):
         '''
@@ -249,9 +264,11 @@ class User:
         Get notes from a tweet.
         '''
         with self._session() as session:
-            return session.query(
+            results = session.query(
                 TimelineNotesSQL
             ).filter(TimelineNotesSQL.tweet_id == tweet_id).all()
+
+            return load_model(results, NoteModel, many=True)
 
     def get_retweet_watchlist_percent(self, watchlist):
         '''
@@ -285,9 +302,11 @@ class User:
         Get the tags on a timeline tweet.
         '''
         with self._session() as session:
-            return session.query(TagsSQL).join(TimelineTagsSQL).filter(
+            results = session.query(TagsSQL).join(TimelineTagsSQL).filter(
                 TimelineTagsSQL.tweet_id == tweet_id
             ).all()
+
+            return load_model(results, TagModel, many=True)
 
     def get_timeline(self, page, page_size=20, watchlist=None, watchwords=None):
         '''
@@ -342,7 +361,7 @@ class User:
             results = serialize_paginated_entities(results)
             if watchlist:
                 self._remove_temp_join(join_id)
-            return results
+            return load_model(results, TweetPaginatorModel)
 
     def get_timeline_tagged(self, tag_id, page, page_size=20):
         '''
@@ -360,7 +379,8 @@ class User:
                 page_size=page_size
             )
 
-        return serialize_paginated_entities(results)
+        results = serialize_paginated_entities(results)
+        return load_model(results, TweetPaginatorModel)
 
     def remove_note_timeline(self, tweet_id, note_id):
         '''
@@ -491,7 +511,7 @@ class User:
             results = serialize_paginated_entities(results)
             if watchlist:
                 self._remove_temp_join(join_id)
-            return results
+            return load_model(results, TweetPaginatorModel)
 
     def get_favorites_tagged(self, tag_id, page, page_size=20):
         '''
@@ -508,25 +528,29 @@ class User:
                 page_size=page_size
             )
 
-        return serialize_paginated_entities(results)
+        results = serialize_paginated_entities(results)
+        return load_model(results, TweetPaginatorModel)
 
     def get_notes_favorite(self, tweet_id):
         '''
         Get notes from a tweet.
         '''
         with self._session() as session:
-            return session.query(
+            results = session.query(
                 FavoritesNotesSQL
             ).filter(FavoritesNotesSQL.tweet_id == tweet_id).all()
+            return load_model(results, NoteModel, many=True)
 
     def get_tags_favorite(self, tweet_id):
         '''
         Get the tags on a favorited tweet.
         '''
         with self._session() as session:
-            return session.query(TagsSQL).join(FavoritesTagsSQL).filter(
+            results = session.query(TagsSQL).join(FavoritesTagsSQL).filter(
                 FavoritesTagsSQL.tweet_id == tweet_id
             ).all()
+
+            return load_model(results, TagModel, many=True)
 
     def remove_note_favorite(self, tweet_id, note_id):
         '''
@@ -615,10 +639,15 @@ class User:
                         new_items.append(item)
             results.items = new_items
 
-            return results
+            return load_model(results, RelationshipPaginatorModel)
 
         with self._session() as session:
-            return paginate(session.query(FriendsSQL), page=page, page_size=page_size)
+            results = paginate(
+                session.query(FriendsSQL),
+                page=page,
+                page_size=page_size
+            )
+            return load_model(results, RelationshipPaginatorModel)
 
     def get_friends_watchlist_completion(self, watchlist):
         '''
@@ -734,9 +763,14 @@ class User:
                         new_items.append(item)
             results.items = new_items
 
-            return results
+            return load_model(results, RelationshipPaginatorModel)
         with self._session() as session:
-            return paginate(session.query(FollowersSQL), page=page, page_size=page_size)
+            results = paginate(
+                session.query(FollowersSQL),
+                page=page,
+                page_size=page_size
+            )
+            return load_model(results, RelationshipPaginatorModel)
 
     def get_followers_watchlist_completion(self, watchlist):
         '''
@@ -762,8 +796,11 @@ class User:
 
         self._remove_temp_join(join_id)
 
-        return (followers_on_watchlist / len(watchlist)
-                if watchlist else 0)
+        return (
+            followers_on_watchlist / len(watchlist)
+            if watchlist else
+            0
+        )
 
     def get_followers_watchlist_percent(self, watchlist):
         '''
@@ -816,10 +853,12 @@ class User:
         else:
             return None
         with self._session() as session:
-            return session.query(TagsSQL).join(
+            results = session.query(TagsSQL).join(
                 query_class,
                 query_class.tag_id == TagsSQL.tag_id
             ).all()
+
+            return load_model(results, TagModel, many=True)
 
 
 # GLOBALS

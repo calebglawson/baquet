@@ -14,18 +14,23 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy import create_engine, and_
 
 from .constants import BaquetConstants
-from .models.directory import (
+from .sql.directory import (
     BASE as DIR_BASE,
     DirectorySQL,
     CacheSQL,
     TempJoinSQL as DirTempJoinSQL
 )
-from .helpers import(
+from .helpers import (
     make_api,
     make_config,
     transform_user,
     serialize_entities,
     serialize_paginated_entities
+)
+from .models import (
+    load_model,
+    UserPaginatorModel,
+    UserModel,
 )
 
 
@@ -157,7 +162,7 @@ class Directory:
         Get users in the directory.
         '''
         with self._session() as session:
-            return serialize_paginated_entities(
+            results = serialize_paginated_entities(
                 paginate(
                     session.query(DirectorySQL).order_by(
                         DirectorySQL.screen_name
@@ -166,6 +171,7 @@ class Directory:
                     page_size=page_size
                 )
             )
+            return load_model(results, UserPaginatorModel)
 
     def scan_and_update_directory(self):
         '''
@@ -242,7 +248,7 @@ class Directory:
 
             self._remove_temp_join(screen_name_join)
 
-        return results
+        return load_model(results, UserModel, many=True)
 
 
 # GLOBALS
