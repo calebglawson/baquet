@@ -87,6 +87,20 @@ class BasePaginatorModel:
         self.total = kwargs.get("total")
 
 
+class UserPaginatorModel(BasePaginatorModel):
+    '''
+    User Paginator.
+    '''
+
+    def __init__(
+            self,
+            items,
+            **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.items = load_model(items, UserModel, many=True)
+
+
 class NoteModel:
     '''
     Note representation.
@@ -199,3 +213,32 @@ class RelationshipPaginatorModel(BasePaginatorModel):
     ):
         super().__init__(**kwargs)
         self.items = load_model(items, BaseRelationshipModel, many=True)
+
+
+class SublistTypeModel:
+    '''
+    Sublist type model.
+    '''
+
+    def __init__(
+            self,
+            **kwargs,
+    ):
+        self.sublist_type_id = kwargs.get("sublist_type_id")
+        self.name = kwargs.get("name")
+
+
+class SublistModel:
+    '''
+    Sublist model.
+    '''
+
+    def __init__(
+            self,
+            sublist_type,
+            **kwargs,
+    ):
+        self.sublist_id = kwargs.get("sublist_id")
+        self.sublist_type = load_model(sublist_type, SublistTypeModel)
+        self.name = kwargs.get("name")
+        self.external_id = kwargs.get("external_id")
