@@ -172,7 +172,7 @@ class TweetModel:
         self.last_updated = kwargs.get("last_updated")
 
 
-class TweetPaginatorModel:
+class TweetPaginatorModel(BasePaginatorModel):
     '''
     Tweet paginator model.
     '''
