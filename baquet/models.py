@@ -193,7 +193,7 @@ class BaseRelationshipModel:
 
     def __init__(
             self,
-            user,
+            user=None,
             **kwargs,
     ):
         self.user = load_model(user, UserModel) if user else None
